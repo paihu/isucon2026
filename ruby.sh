@@ -11,7 +11,7 @@ hosts=(
   35.74.177.247
 )
 
-deploy_app='cd ~ && git fetch -q origin && git reset -q --hard origin/master && git log --oneline -1 && rm -rf ~/local/image-cache /dev/shm/isureal-image-state && sudo systemctl restart isureal-ruby.service'
+deploy_app='cd ~ && git fetch -q origin && git reset -q --hard origin/master && git log --oneline -1 && gcc -O2 -shared -fPIC -o ~/webapp/ruby/ext/iterated_hmac.so ~/webapp/ruby/ext/iterated_hmac.c -lcrypto && rm -rf ~/local/image-cache /dev/shm/isureal-image-state && sudo systemctl restart isureal-ruby.service'
 
 for h in "${app_only_hosts[@]}"; do
   echo "== $h"

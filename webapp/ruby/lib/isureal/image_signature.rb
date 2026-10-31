@@ -1,9 +1,24 @@
 # frozen_string_literal: true
 
+require 'ffi'
 require 'fileutils'
 require 'openssl'
 
 module Isureal
+  # ext/iterated_hmac.c（ruby.sh が各ホストでビルドする）。無い環境では Ruby の実装を使う。
+  module IteratedHMAC
+    extend FFI::Library
+
+    PATH = File.expand_path('../../ext/iterated_hmac.so', __dir__)
+    AVAILABLE = begin
+      ffi_lib PATH
+      attach_function :isureal_iterated_hmac_sha256, %i[pointer size_t pointer size_t int pointer], :void, blocking: true
+      true
+    rescue LoadError
+      false
+    end
+  end
+
   module ImageSignature
     IMAGE_URL_LIFETIME = 24 * 60 * 60
     IMAGE_SIGNATURE_ITERATIONS = 1000
@@ -66,6 +81,12 @@ module Isureal
 
     def compute_signature(key, image_id, exp)
       value = "#{exp}:#{image_id}".b
+      if IteratedHMAC::AVAILABLE
+        out = FFI::MemoryPointer.new(:uint8, 32)
+        IteratedHMAC.isureal_iterated_hmac_sha256(key, key.bytesize, value, value.bytesize, IMAGE_SIGNATURE_ITERATIONS, out)
+        return out.read_bytes(32)
+      end
+
       mac = OpenSSL::HMAC.new(key, 'SHA256')
       IMAGE_SIGNATURE_ITERATIONS.times { value = mac.reset.update(value).digest }
       value
@@ -84,8 +105,8 @@ module Isureal
       nil
     end
 
-    # 期限を分単位に切り捨てるのは、同じ画像の URL を 1 分間同じにして署名（HMAC 1000 回）のメモを効かせるため。
-    EXP_GRANULARITY = 60
+    # 期限を 2 分単位に切り捨てるのは、同じ画像の URL を 2 分間同じにして署名（HMAC 1000 回）のメモを効かせるため。
+    EXP_GRANULARITY = 120
 
     # 呼び出し元はどれも、その時点で有効な画像を持ち主の user で署名するので、有効な状態として入れておける。
     # media_type を固定にするのは、作成時は常に image/jpeg で、初期データも全件 image/jpeg のため。
