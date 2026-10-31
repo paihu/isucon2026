@@ -85,6 +85,7 @@ module Isureal
     SQL
     IMAGE_STATE_ONLY_SQL = format(IMAGE_STATE_SQL, '').freeze
     IMAGE_STATE_WITH_DATA_SQL = format(IMAGE_STATE_SQL, ', i.data').freeze
+    Connection.prepare_on_connect(IMAGE_STATE_ONLY_SQL, IMAGE_STATE_WITH_DATA_SQL)
 
     INT64_RANGE = (-(2**63)...(2**63))
 

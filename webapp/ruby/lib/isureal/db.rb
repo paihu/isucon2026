@@ -61,11 +61,18 @@ module Isureal
     ARRAY_ENCODER = PG::TextEncoder::Array.new
     TYPE_REGISTRY = PG::BasicTypeRegistry.new.register_default_types
                                          .register_type(0, 'numeric', PG::TextEncoder::Float, PG::TextDecoder::Float)
+    # パーティションを総当たりする SQL は計画に 1ms 以上かかるので、接続時に prepare して計画を使い回す。
+    PREPARED = {}
+
+    def self.prepare_on_connect(*sqls)
+      sqls.each { |sql| PREPARED[sql] ||= "isureal_p#{PREPARED.size + 1}" }
+    end
 
     def initialize(raw)
       @raw = raw
       @raw.type_map_for_results = PG::BasicTypeMapForResults.new(@raw, registry: TYPE_REGISTRY)
       @raw.field_name_type = :symbol
+      PREPARED.each { |sql, name| @raw.prepare(name, sql) }
     end
 
     def get(sql, *params) = query(sql, params).first
@@ -122,9 +129,12 @@ module Isureal
 
     private
 
-    # prepare しないのは、接続 × SQL ごとの初回 prepare が europe/america で 1 往復（約 100ms）かかるため。
+    # 全 SQL を prepare しないのは、接続 × SQL ごとの初回 prepare が europe/america で 1 往復（約 100ms）かかるため。
+    # PREPARED に登録したものだけは接続時（起動時の prewarm）に prepare 済み。
     def query(sql, params)
-      @raw.exec_params(sql, params.map { |param| encode(param) })
+      encoded = params.map { |param| encode(param) }
+      name = PREPARED[sql]
+      name ? @raw.exec_prepared(name, encoded) : @raw.exec_params(sql, encoded)
     end
 
     def encode(value)
