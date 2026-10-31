@@ -65,18 +65,12 @@ module Isureal
       env['isureal.username'] = input[:username]
       raise APIError.new(401, 'invalid_credentials') unless USERNAME_PATTERN.match?(input[:username])
 
-      user, session = db.transaction do |tx|
-        row = tx.get('SELECT id, username, secret_key_hash, display_name, bio, profile_image_id, region, account_type, status FROM users WHERE username = $1 FOR NO KEY UPDATE', input[:username])
-        raise APIError.new(401, 'invalid_credentials') if row.nil?
+      token = SecureRandom.uuid
+      row = db.get('SELECT * FROM isureal_login($1, $2, $3, $4)', input[:username], Digest::SHA256.hexdigest(input[:secret_key]),
+                   SecureRandom.uuid, Digest::SHA256.hexdigest(token))
+      raise APIError.new(401, 'invalid_credentials') if row.nil?
 
-        user = User.from_row(row)
-        if user.status != 'active' || user.secret_key_hash != Digest::SHA256.hexdigest(input[:secret_key])
-          raise APIError.new(401, 'invalid_credentials')
-        end
-
-        [user, create_login_session_tx(tx, user.id)]
-      end
-      json_response(200, { token: session.token, user: session_user_response(user) })
+      json_response(200, { token:, user: session_user_response(User.from_row(row)) })
     end
 
     def logout_handler
@@ -91,10 +85,7 @@ module Isureal
       session = current_session
       raise APIError.new(401, 'invalid_session') if session.nil?
 
-      user = get_user(db, session.user_id)
-      raise APIError.new(404, 'account_not_found') if user.nil?
-
-      json_response(200, get_me_response(user))
+      json_response(200, get_me_response(session.user))
     end
 
     def update_me_handler

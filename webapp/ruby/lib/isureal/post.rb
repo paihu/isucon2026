@@ -86,8 +86,7 @@ module Isureal
       select_posts_with_author(db, 'AND p.id = $1', post_id).first
     end
 
-    def load_viewer_context(db, viewer_id)
-      user = get_user(db, viewer_id)
+    def load_viewer_context(db, viewer_id, user = get_user(db, viewer_id))
       return nil if user.nil?
 
       viewer = ViewerContext.new(user:, friends: {}, friends_of_friends: {}, mutual_friends: Hash.new(0))

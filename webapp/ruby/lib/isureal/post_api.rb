@@ -117,8 +117,7 @@ module Isureal
       post = get_post(db, post_id)
       raise APIError.new(404, 'post_not_found') if post.nil?
 
-      user = get_user(db, user_id) or raise NoRowsError
-      json_response(200, post_response(post, user))
+      json_response(200, post_response(post, current_user))
     end
 
     def get_post_handler
@@ -126,7 +125,7 @@ module Isureal
       post = get_post_with_author(db, input[:post_id])
       raise APIError.new(404, 'post_not_found') if post.nil?
 
-      viewer = load_viewer_context(db, current_session.user_id)
+      viewer = load_viewer_context(db, current_session.user_id, current_user)
       raise APIError.new(404, 'post_not_found') if viewer.nil? || !viewer.can_view?(post)
 
       json_response(200, post_response(post, post.author))

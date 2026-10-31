@@ -6,8 +6,8 @@ require 'zip'
 module Isureal
   class App
     def export_posts_handler
-      user_id = current_session.user_id
-      author = get_user(db, user_id) or raise NoRowsError
+      author = current_user
+      user_id = author.id
       posts = db.select(<<~SQL, user_id)
         SELECT #{POST_COLUMNS}, i.data AS image_data
         FROM posts p

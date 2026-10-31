@@ -22,4 +22,5 @@ PGPASSWORD="$ISUREAL_DB_PASSWORD" psql \
 	--dbname="$ISUREAL_DB_NAME" \
 	--set=ON_ERROR_STOP=1 \
 	--file=002-indexes.sql \
+	--file=004-functions.sql \
 	--file=reset.sql

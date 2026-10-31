@@ -19,7 +19,7 @@ module Isureal
       ranked = input[:feed] == 'friends-of-friends'
       raise APIError.new(400, 'invalid_pagination') if ranked && input[:before_score].nil? != input[:before_id].empty?
 
-      viewer = load_viewer_context(db, current_session.user_id)
+      viewer = load_viewer_context(db, current_session.user_id, current_user)
       return json_response(200, { items: [], hasMore: false }) if viewer.nil?
 
       following = {}
