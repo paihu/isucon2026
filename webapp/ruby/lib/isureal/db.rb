@@ -8,11 +8,15 @@ module Isureal
   class Database
     def initialize(options, size:, timeout: 60)
       PG.connect(**options).close
-      @pool = ConnectionPool.new(size:, timeout:) { Connection.new(PG.connect(**options)) }
+      # ConnectionPool は接続をロックの中で 1 本ずつ作るので、起動時の分はスレッドで並べて作っておく。
+      # europe/america では 1 本に数往復（約 100ms ずつ）かかり、順番に作るとワーカーの起動に 24 秒かかっていた。
+      warm = Queue.new
+      Array.new(size) { Thread.new { warm << Connection.new(PG.connect(**options)) } }.each(&:join)
+      @pool = ConnectionPool.new(size:, timeout:) { (warm.pop(true) rescue nil) || Connection.new(PG.connect(**options)) }
       prewarm(size)
     end
 
-    # europe/america では新規接続に数往復かかるので、起動時に全接続を張っておく。
+    # 作っておいた接続をプールに全部取り込ませる（プールは使われるまで接続を作らない）。
     def prewarm(size)
       acquired = Queue.new
       release = Queue.new
