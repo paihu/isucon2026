@@ -16,7 +16,7 @@ module Isureal
       SELECT #{USER_COLUMNS.map { |column| "u.#{column}" }.join(', ')}
       FROM users u
       WHERE u.status = 'active' AND u.id <> $1 AND ($2 = '' OR (u.username, u.id) > ($2, $3))
-        AND (strpos(u.search_username, $4) > 0 OR strpos(u.search_display_name, $4) > 0)
+        AND (u.search_username LIKE $4 OR u.search_display_name LIKE $4)
         AND NOT EXISTS (SELECT 1 FROM block_relations b WHERE (b.blocker_id = $1 AND b.blocked_id = u.id) OR (b.blocker_id = u.id AND b.blocked_id = $1))
       ORDER BY u.username, u.id LIMIT 51
     SQL
@@ -26,7 +26,7 @@ module Isureal
       raise APIError.new(400, 'invalid_relationship') unless valid_user_text?(input[:q], 1, 100)
       raise APIError.new(400, 'invalid_pagination') if input[:before_username].empty? != input[:before_id].empty?
 
-      users, = query_with_session([SEARCH_USERS_SQL, input[:before_username], input[:before_id], SearchText.normalize(input[:q])])
+      users, = query_with_session([SEARCH_USERS_SQL, input[:before_username], input[:before_id], "%#{SearchText.normalize(input[:q]).gsub(/[\\%_]/) { |char| "\\#{char}" }}%"])
       items = users.map do |row|
         user = User.from_row(row).set_image_key
         user.bio = '' if user.account_type != 'certified_public'

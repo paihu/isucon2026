@@ -17,6 +17,19 @@ module Isureal
       ORDER BY p.posted_at DESC, p.id DESC
     SQL
 
+    # 開いている投稿期間の全投稿は数百行になるので、種類ごとの条件で先に絞る。最終的な判定は matches_feed? が行う。
+    # IN (友達一覧) や following の絞り込みにしないのは、友達・フォロー先の全期間の投稿から結合する計画になり秒単位で遅くなるため。
+    FEED_FILTERS = {
+      'friends' => <<~SQL,
+        AND EXISTS (
+          SELECT 1 FROM friendships f
+          WHERE f.user_low_id = (least(p.author_id COLLATE "C", $1) COLLATE "default")
+            AND f.user_high_id = (greatest(p.author_id COLLATE "C", $1) COLLATE "default")
+        )
+      SQL
+      'public' => "AND p.visibility = 'public'",
+    }.freeze
+
     def get_feed_handler
       input = bind(GET_FEED_REQUEST)
       raise APIError.new(400, 'invalid_post') unless FEEDS.include?(input[:feed])
@@ -26,7 +39,7 @@ module Isureal
       raise APIError.new(400, 'invalid_pagination') if ranked && input[:before_score].nil? != input[:before_id].empty?
 
       before_posted_at, before_id = ranked ? [nil, ''] : input.values_at(:before_posted_at, :before_id)
-      viewer_rows, post_rows = query_with_session([VIEWER_CONTEXT_SQL], [posts_with_author_sql(FEED_CONDITIONS), before_posted_at, before_id])
+      viewer_rows, post_rows = query_with_session([VIEWER_CONTEXT_SQL], [posts_with_author_sql("#{FEED_FILTERS[input[:feed]]}\n#{FEED_CONDITIONS}"), before_posted_at, before_id])
       viewer = viewer_context(current_user, viewer_rows.first)
       following = viewer.following
       posts = posts_from_rows(post_rows)
