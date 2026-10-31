@@ -41,6 +41,10 @@ BEGIN
     RAISE EXCEPTION 'sql: no rows in result set';
   END IF;
 
+  -- 投稿期間の開始（同じキーの排他 advisory lock）を先に通す。行ロックの FOR SHARE だけだと、投稿が途切れない間
+  -- 開始の UPDATE が排他ロックを取れず数秒待たされる。advisory lock は来た順に並ぶので、開始が待ち始めると後続の投稿はその後ろに並ぶ。
+  PERFORM pg_advisory_xact_lock_shared(hashtext('posting_window:' || u.region));
+
   -- open_posting_window と競合すると 1 回目は 0 行になるので、新しいスナップショットで再取得する。
   -- FOR UPDATE にしないのは、同じリージョンの投稿同士がこの 1 行で直列になるため。FOR SHARE でも投稿期間の終了（UPDATE）とは競合する。
   SELECT * INTO w FROM posting_windows WHERE region = u.region AND ended_at IS NULL FOR SHARE;
