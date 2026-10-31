@@ -17,15 +17,15 @@ module Isureal
 
       user_id = current_session.user_id
       image_id = SecureRandom.uuid
+      ImageCache.write(image_id, data)
       db.transaction do |tx|
         row = tx.get('SELECT profile_image_id FROM users WHERE id=$1 FOR NO KEY UPDATE', user_id)
         raise APIError.new(404, 'account_not_found') if row.nil?
 
-        tx.exec("INSERT INTO image_objects(id,owner_user_id,data,media_type) VALUES ($1,$2,$3,'image/jpeg')", image_id, user_id, data)
+        tx.exec("INSERT INTO image_objects(id,owner_user_id,data,media_type,origin) VALUES ($1,$2,$3,'image/jpeg',$4)", image_id, user_id, ''.b, ImageOrigin::SELF)
         tx.exec('UPDATE users SET profile_image_id=$2,updated_at=clock_timestamp() WHERE id=$1', user_id, image_id)
         tx.exec('DELETE FROM image_objects WHERE id=$1', row[:profile_image_id]) unless row[:profile_image_id].nil?
       end
-      ImageCache.write(image_id, data)
       no_content(204)
     end
 

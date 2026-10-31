@@ -41,6 +41,7 @@ module Isureal
     get('/api/posts/:postId/realmojis') { deferred_session_middleware { get_real_mojis_handler } }
     delete('/api/realmojis/:realMojiId') { session_middleware(true) { region_middleware { delete_real_moji_handler } } }
     get('/api/images/:imageId') { get_image_handler }
+    get('/internal/images/:imageId') { internal_image_handler }
     get('/api/notifications') { session_middleware(true) { region_middleware { get_notifications_handler } } }
     post('/api/friend-requests') { session_middleware(true) { region_middleware { create_friend_request_handler } } }
     post('/api/friend-requests/:requestId/:action') { session_middleware(true) { region_middleware { transition_friend_request_handler } } }

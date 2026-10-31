@@ -21,9 +21,13 @@ END
 $$;
 
 -- 投稿枠が使えないときは 0 行を返す。
+-- p_origin を足す前の版が残っていると、引数 10 個の呼び出しがどちらにも一致して曖昧になるので消す。
+DROP FUNCTION IF EXISTS isureal_create_post(text, text, bytea, text, text, text, text, numeric, numeric, text);
+-- p_origin: 画像本体を持つサーバー（host:port）。指定時の p_image は空で、本体はそのサーバーのディスクにある。
 CREATE OR REPLACE FUNCTION isureal_create_post(p_user_id text, p_image_id text, p_image bytea, p_post_id text,
                                                p_caption text, p_visibility text, p_location_kind text,
-                                               p_latitude numeric, p_longitude numeric, p_locality text)
+                                               p_latitude numeric, p_longitude numeric, p_locality text,
+                                               p_origin text DEFAULT NULL)
 RETURNS TABLE (id varchar, author_id varchar, posting_window_id varchar, image_id varchar, caption text,
                visibility text, location_kind text, latitude numeric, longitude numeric, locality text,
                posted_at timestamptz, on_time_deadline timestamptz, window_ended_at timestamptz)
@@ -64,8 +68,8 @@ BEGIN
     RETURN;
   END IF;
 
-  INSERT INTO image_objects (id, owner_user_id, data, media_type, created_at)
-  VALUES (p_image_id, p_user_id, p_image, 'image/jpeg', now_ts);
+  INSERT INTO image_objects (id, owner_user_id, data, media_type, created_at, origin)
+  VALUES (p_image_id, p_user_id, p_image, 'image/jpeg', now_ts, p_origin);
   INSERT INTO posts (id, author_id, posting_window_id, image_id, caption, visibility,
                      location_kind, latitude, longitude, locality, posted_at)
   VALUES (p_post_id, p_user_id, w.id, p_image_id, p_caption, p_visibility,
@@ -327,8 +331,9 @@ END
 $$;
 
 -- 結果: ok / forbidden / relationship_not_found
+DROP FUNCTION IF EXISTS isureal_replace_realmoji(text, text, text, bytea, text, text);
 CREATE OR REPLACE FUNCTION isureal_replace_realmoji(p_actor text, p_post_id text, p_image_id text, p_image bytea,
-                                                    p_realmoji_id text, p_reaction_type text)
+                                                    p_realmoji_id text, p_reaction_type text, p_origin text DEFAULT NULL)
 RETURNS TABLE (result text, id varchar, post_id varchar, reactor_id varchar, image_id varchar, reaction_type text, created_at timestamptz)
 LANGUAGE plpgsql AS $$
 #variable_conflict use_column
@@ -351,7 +356,7 @@ BEGIN
 
   UPDATE realmojis r SET replaced_at = clock_timestamp()
   WHERE r.post_id = p_post_id AND r.reactor_id = p_actor AND r.replaced_at IS NULL AND r.deleted_at IS NULL;
-  INSERT INTO image_objects (id, owner_user_id, data, media_type) VALUES (p_image_id, p_actor, p_image, 'image/jpeg');
+  INSERT INTO image_objects (id, owner_user_id, data, media_type, origin) VALUES (p_image_id, p_actor, p_image, 'image/jpeg', p_origin);
   INSERT INTO realmojis (id, post_id, reactor_id, image_id, reaction_type, created_at)
   VALUES (p_realmoji_id, p_post_id, p_actor, p_image_id, p_reaction_type, clock_timestamp());
   RETURN QUERY SELECT 'ok'::text, r.id, r.post_id, r.reactor_id, r.image_id, r.reaction_type, r.created_at FROM realmojis r WHERE r.id = p_realmoji_id;

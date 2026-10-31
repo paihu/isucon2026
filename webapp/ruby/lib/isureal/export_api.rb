@@ -18,9 +18,12 @@ module Isureal
       images = posts.to_h { |row| [row[:image_id], ImageCache.read(row[:image_id])] }
       missing = images.select { |_, data| data.nil? }.keys
       unless missing.empty?
-        db.select('SELECT id, data FROM image_objects WHERE id = ANY($1::text[])', missing).each do |row|
-          images[row[:id]] = row[:data]
-          ImageCache.write(row[:id], row[:data])
+        db.select('SELECT id, data, origin FROM image_objects WHERE id = ANY($1::text[])', missing).each do |row|
+          data = row[:data].empty? ? row[:origin] && ImageOrigin.fetch(row[:origin], row[:id]) : row[:data]
+          next if data.nil?
+
+          images[row[:id]] = data
+          ImageCache.write(row[:id], data)
         end
       end
       # image_objects との JOIN（パーティションを ID で総当たりして遅い）の代わりに、画像の無い投稿をここで除く。

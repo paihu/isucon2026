@@ -1,7 +1,9 @@
 # frozen_string_literal: true
 
 require 'fileutils'
+require 'net/http'
 require 'openssl'
+require 'socket'
 
 module Isureal
   # image_objects の中身は不変で id も再利用されないため、初期化をまたいでも破棄不要。
@@ -36,6 +38,34 @@ module Isureal
   end
 
   FileUtils.mkdir_p(ImageCache::DIR)
+
+  # 作成した画像の本体は DB に入れず作成したサーバーのディスクに置き、他のサーバーは必要時に取り寄せる。
+  module ImageOrigin
+    SELF = ENV.fetch('ISUREAL_IMAGE_ORIGIN') { "#{Socket.ip_address_list.find(&:ipv4_private?)&.ip_address}:8080" }
+
+    module_function
+
+    def fetch(origin, id)
+      return nil unless ImageCache::CACHEABLE_ID.match?(id)
+      return ImageCache.read(id) if origin == SELF
+
+      host, port = origin.split(':')
+      connections = (Thread.current[:isureal_origin_http] ||= {})
+      # 1 回だけやり直すのは、相手が閉じた keep-alive 接続を使って失敗することがあるため。
+      2.times do
+        http = connections[origin] ||= Net::HTTP.start(host, Integer(port), open_timeout: 3, read_timeout: 10)
+        response = http.get("/internal/images/#{id}")
+        return response.code == '200' ? response.body.b : nil
+      rescue IOError, SystemCallError, Timeout::Error
+        begin
+          connections.delete(origin)&.finish
+        rescue IOError
+          nil
+        end
+      end
+      nil
+    end
+  end
 
   # 削除から 5 秒以内は画像を返してよいので、有効と確認した状態を TTL の間だけ DB に問い合わせずに使う。
   # Puma のワーカー間で共有するため、プロセスのメモリではなく tmpfs のファイルに置く。
@@ -96,7 +126,7 @@ module Isureal
       WHERE i.id = $1
     SQL
     IMAGE_STATE_ONLY_SQL = format(IMAGE_STATE_SQL, '').freeze
-    IMAGE_STATE_WITH_DATA_SQL = format(IMAGE_STATE_SQL, ', i.data').freeze
+    IMAGE_STATE_WITH_DATA_SQL = format(IMAGE_STATE_SQL, ', i.data, i.origin').freeze
     Connection.prepare_on_connect(IMAGE_STATE_ONLY_SQL, IMAGE_STATE_WITH_DATA_SQL)
 
     INT64_RANGE = (-(2**63)...(2**63))
@@ -139,9 +169,26 @@ module Isureal
       raise APIError.new(403, 'image_forbidden') unless row[:valid]
       raise APIError.new(403, 'image_forbidden') if exp <= Time.now.to_i
 
-      ImageCache.write(input[:image_id], row[:data]) unless cached
+      data = cached || (row[:data].empty? ? row[:origin] && ImageOrigin.fetch(row[:origin], input[:image_id]) : row[:data])
+      raise "image #{input[:image_id]} is not available from #{row[:origin].inspect}" if data.nil?
+
+      ImageCache.write(input[:image_id], data) unless cached
       ImageStateCache.put(input[:image_id], row[:secret_key_hash], row[:media_type]) unless state
-      blob(200, row[:media_type], cached || row[:data])
+      blob(200, row[:media_type], data)
+    end
+
+    # 他のサーバーが画像本体を取り寄せるための内部 API。nginx は /api/ しか転送しないので外部からは 8080 に直接来るしかなく、
+    # 接続元がプライベートアドレスであることで制限する（X-Client-IP は偽装できるので見ない）。
+    def internal_image_handler
+      remote = Addrinfo.ip(env['REMOTE_ADDR'].to_s)
+      raise APIError.new(403, 'forbidden') unless remote.ipv4_private? || remote.ipv4_loopback?
+
+      data = ImageCache.read(params['imageId'])
+      raise APIError.new(404, 'image_not_found') if data.nil?
+
+      blob(200, 'application/octet-stream', data)
+    rescue SocketError
+      raise APIError.new(403, 'forbidden')
     end
   end
 end

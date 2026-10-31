@@ -16,3 +16,5 @@ CREATE INDEX IF NOT EXISTS realmojis_image_id ON realmojis(image_id);
 CREATE INDEX IF NOT EXISTS notifications_user_id_created_at ON notifications(user_id, created_at);
 -- JPEG は圧縮できないので、TOAST の圧縮を試みない。
 ALTER TABLE image_objects ALTER COLUMN data SET STORAGE EXTERNAL;
+-- 画像本体を DB に置かない画像の、本体を持つサーバー（host:port）。
+ALTER TABLE image_objects ADD COLUMN IF NOT EXISTS origin text;

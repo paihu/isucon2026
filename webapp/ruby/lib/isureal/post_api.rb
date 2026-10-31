@@ -48,12 +48,13 @@ module Isureal
       raise APIError.new(400, 'invalid_post') if image.width > 4096 || image.height > 4096
 
       user = current_user
-      row = db.get('SELECT * FROM isureal_create_post($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)',
-                   user.id, SecureRandom.uuid, image_data, SecureRandom.uuid, input[:caption], input[:visibility],
-                   location[:kind], location[:latitude], location[:longitude], location[:locality])
+      # 他のサーバーがコミット直後に取り寄せても見つかるよう、DB より先にディスクに書く。
+      image_id = SecureRandom.uuid
+      ImageCache.write(image_id, image_data)
+      row = db.get('SELECT * FROM isureal_create_post($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)',
+                   user.id, image_id, ''.b, SecureRandom.uuid, input[:caption], input[:visibility],
+                   location[:kind], location[:latitude], location[:longitude], location[:locality], ImageOrigin::SELF)
       raise APIError.new(409, 'post_slot_unavailable') if row.nil?
-
-      ImageCache.write(row[:image_id], image_data)
 
       json_response(201, post_response(Post.from_row(row), user))
     end

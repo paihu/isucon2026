@@ -40,10 +40,11 @@ module Isureal
       raise APIError.new(400, 'invalid_realmoji') if image.nil?
       raise APIError.new(400, 'invalid_realmoji') if image.width > 512 || image.height > 512
 
-      row = db.get!('SELECT * FROM isureal_replace_realmoji($1, $2, $3, $4, $5, $6)',
-                    current_user.id, input[:post_id], SecureRandom.uuid, data, SecureRandom.uuid, input[:reaction_type])
+      image_id = SecureRandom.uuid
+      ImageCache.write(image_id, data)
+      row = db.get!('SELECT * FROM isureal_replace_realmoji($1, $2, $3, $4, $5, $6, $7)',
+                    current_user.id, input[:post_id], image_id, ''.b, SecureRandom.uuid, input[:reaction_type], ImageOrigin::SELF)
       raise_interaction_error(row[:result])
-      ImageCache.write(row[:image_id], data)
 
       reaction = RealMoji.from_row(row)
       user = current_user
