@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'fileutils'
 require 'openssl'
 
 module Isureal
@@ -26,7 +27,41 @@ module Isureal
       end
 
       SIGNATURE_MEMO.clear if SIGNATURE_MEMO.size >= SIGNATURE_MEMO_LIMIT
-      SIGNATURE_MEMO[memo_key] = compute_signature(key, image_id, exp).freeze
+      SIGNATURE_MEMO[memo_key] = shared_signature(key, image_id, exp).freeze
+    end
+
+    # Puma のワーカー間でも署名を使い回すため、メモに無ければ tmpfs のファイルを見る。
+    # 期限ごとのディレクトリに置き、新しい期限のディレクトリを作るときに古いものを消す。
+    SHARED_DIR = ENV.fetch('ISUREAL_SIGNATURE_DIR', '/dev/shm/isureal-signature')
+    SHARED_KEEP = 3
+    SHARED_ID = /\A[0-9A-Za-z-]{1,64}\z/
+
+    def shared_signature(key, image_id, exp)
+      return compute_signature(key, image_id, exp) unless SHARED_ID.match?(image_id)
+
+      dir = File.join(SHARED_DIR, exp.to_s)
+      path = File.join(dir, image_id)
+      begin
+        stored = File.binread(path)
+        return stored.byteslice(32, 32) if stored.bytesize == 64 && stored.byteslice(0, 32) == key
+      rescue Errno::ENOENT
+        nil
+      end
+      value = compute_signature(key, image_id, exp)
+      write_shared(dir, path, key + value)
+      value
+    end
+
+    def write_shared(dir, path, data)
+      unless Dir.exist?(dir)
+        FileUtils.mkdir_p(dir, mode: 0o700)
+        Dir.children(SHARED_DIR).sort_by(&:to_i)[0...-SHARED_KEEP].each { |old| FileUtils.rm_rf(File.join(SHARED_DIR, old)) }
+      end
+      tmp = "#{path}.#{Process.pid}.#{Thread.current.object_id}.tmp"
+      File.binwrite(tmp, data)
+      File.rename(tmp, path)
+    rescue SystemCallError
+      nil
     end
 
     def compute_signature(key, image_id, exp)
