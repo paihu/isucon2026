@@ -6,10 +6,10 @@
 
 | サーバ | 公開 IP | 内部 IP | 役割 |
 |---|---|---|---|
-| asia1 | 35.74.177.247 | 192.168.1.10 | nginx + Ruby アプリ。asia の入口。asia1:asia2 = 3:1 で振り分け、管理者 API は asia1 の専用 Puma（:8082、`etc/systemd/isureal-ruby-admin.service`）（`etc/nginx/upstream/asia.conf`） |
+| asia1 | 35.74.177.247 | 192.168.1.10 | nginx + Ruby アプリ。asia の入口。asia は asia1 だけで受ける（asia2 は backup）、管理者 API は asia1 の専用 Puma（:8082、`etc/systemd/isureal-ruby-admin.service`）（`etc/nginx/upstream/asia.conf`） |
 | europe1 | 13.113.23.51 | 192.168.2.10 | nginx + Ruby アプリ |
 | america1 | 13.112.188.233 | 192.168.3.10 | nginx + Ruby アプリ |
-| asia2 | 175.41.248.35 | 192.168.4.10 | PostgreSQL 16 + Ruby アプリ（asia1 の nginx から 1/4。nginx は使わない） |
+| asia2 | 175.41.248.35 | 192.168.4.10 | PostgreSQL 16 + Ruby アプリ（asia1 が落ちたときの backup。nginx は使わない） |
 
 - ssh は `ssh isucon@<公開 IP>`。sudo 可。
 - europe/america から asia2 の DB までは 1 往復約 100ms。**応答時間はほぼ DB 往復回数で決まる。**
