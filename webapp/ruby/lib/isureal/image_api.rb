@@ -38,25 +38,37 @@ module Isureal
   FileUtils.mkdir_p(ImageCache::DIR)
 
   # 削除から 5 秒以内は画像を返してよいので、有効と確認した状態を TTL の間だけ DB に問い合わせずに使う。
+  # Puma のワーカー間で共有するため、プロセスのメモリではなく tmpfs のファイルに置く。
   module ImageStateCache
     TTL = 3.0
-    LIMIT = 100_000
-    @entries = {}
+    DIR = ENV.fetch('ISUREAL_IMAGE_STATE_DIR', '/dev/shm/isureal-image-state')
+    # 状態確認が他リージョンの DB への往復になる europe/america だけ、URL を作った時点で状態を入れておく。
+    SEED_ON_SIGN = %w[europe america].include?(ENV.fetch('ISUREAL_REGION', 'asia'))
 
     module_function
 
     def get(id)
-      entry = @entries[id]
-      entry if entry && entry[:expires_at] > now
+      return nil unless ImageCache::CACHEABLE_ID.match?(id)
+
+      expires_at, secret_key_hash, media_type = File.read(File.join(DIR, id)).split("\t")
+      { secret_key_hash:, media_type:, valid: true } if expires_at.to_f > now
+    rescue Errno::ENOENT
+      nil
     end
 
-    def put(id, row)
-      @entries.clear if @entries.size >= LIMIT
-      @entries[id] = { secret_key_hash: row[:secret_key_hash], media_type: row[:media_type], valid: true, expires_at: now + TTL }
+    def put(id, secret_key_hash, media_type)
+      return unless ImageCache::CACHEABLE_ID.match?(id)
+
+      path = File.join(DIR, id)
+      tmp = "#{path}.#{Process.pid}.#{Thread.current.object_id}.tmp"
+      File.write(tmp, "#{now + TTL}\t#{secret_key_hash}\t#{media_type}")
+      File.rename(tmp, path)
     end
 
     def now = Process.clock_gettime(Process::CLOCK_MONOTONIC)
   end
+
+  FileUtils.mkdir_p(ImageStateCache::DIR)
 
   class App
     GET_IMAGE_REQUEST = {
@@ -128,7 +140,7 @@ module Isureal
       raise APIError.new(403, 'image_forbidden') if exp <= Time.now.to_i
 
       ImageCache.write(input[:image_id], row[:data]) unless cached
-      ImageStateCache.put(input[:image_id], row) unless state
+      ImageStateCache.put(input[:image_id], row[:secret_key_hash], row[:media_type]) unless state
       blob(200, row[:media_type], cached || row[:data])
     end
   end
