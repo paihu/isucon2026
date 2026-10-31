@@ -97,6 +97,7 @@ tools/compare-all.sh                  # 旧新の応答を突き合わせ（友�
 
 ## ハマりどころ
 
+- **systemd-logind の `RemoveIPC`（Ubuntu の既定は yes）は、isucon の ssh が全部切れると isucon が `/dev/shm` に作ったファイルを消す。** アプリは isucon で動くので、`/dev/shm/isureal-image-state` 等が消えて画像取得が 500 になり、再起動後のベンチが FAIL した（再起動前は誰かの ssh が残っていて起きなかった）。4 台に `/etc/systemd/logind.conf.d/isureal.conf`（`RemoveIPC=no`）を置いて `systemd-logind` を再起動済み。再構築したら置き直す。
 - **`COLLATE "C"` を比較に使うとインデックスが効かない**（列は C.UTF-8）。順序を決めた値には `COLLATE "default"` を付ける。
 - `pgrep -f` / `pkill -f` は ssh で送ったコマンド行自体にも一致する。`-x`（プロセス名）を使う。
 - zsh は `$var` を単語分割しない。ホスト一覧は配列 `"${hosts[@]}"` で回す。
