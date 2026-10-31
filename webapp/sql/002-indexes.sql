@@ -21,3 +21,37 @@ CREATE INDEX IF NOT EXISTS notifications_user_id_created_at ON notifications(use
 ALTER TABLE image_objects ALTER COLUMN data SET STORAGE EXTERNAL;
 -- 画像本体を DB に置かない画像の、本体を持つサーバー（host:port）。
 ALTER TABLE image_objects ADD COLUMN IF NOT EXISTS origin text;
+-- 画像の有効性確認で ID から引く表。image_objects は created_at でパーティション分割されていて、ID だけで引くと
+-- 全パーティションの索引を総当たりするため。image_objects の行トリガで同期し、初期化（トリガが動かない）では reset.sql で消す。
+CREATE OR REPLACE FUNCTION isureal_sync_image_meta() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    INSERT INTO image_meta (id, owner_user_id, media_type, created_at)
+    VALUES (NEW.id, NEW.owner_user_id, NEW.media_type, NEW.created_at)
+    ON CONFLICT (id) DO NOTHING;
+  ELSE
+    DELETE FROM image_meta WHERE id = OLD.id;
+  END IF;
+  RETURN NULL;
+END
+$$;
+DO $$
+BEGIN
+  IF to_regclass('image_meta') IS NULL THEN
+    CREATE TABLE image_meta (
+      id varchar(36) PRIMARY KEY,
+      owner_user_id varchar(36) NOT NULL,
+      media_type text NOT NULL,
+      created_at timestamptz NOT NULL
+    );
+    -- 既存行を写す間に挿入されたものを取りこぼさないよう、トリガを作るまで image_objects への書き込みを止める。
+    LOCK TABLE image_objects IN SHARE MODE;
+    INSERT INTO image_meta (id, owner_user_id, media_type, created_at)
+    SELECT id, owner_user_id, media_type, created_at FROM image_objects
+    ON CONFLICT (id) DO NOTHING;
+    CREATE TRIGGER image_objects_sync_meta AFTER INSERT OR DELETE ON image_objects
+    FOR EACH ROW EXECUTE FUNCTION isureal_sync_image_meta();
+  END IF;
+END
+$$;

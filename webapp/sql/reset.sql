@@ -21,6 +21,8 @@ BEGIN
   END LOOP;
 END $$;
 DELETE FROM image_objects WHERE created_at > (SELECT created_at FROM initial_data_boundary);
+-- session_replication_role = replica と TRUNCATE では image_objects のトリガが動かないので、ここで消す。
+DELETE FROM image_meta WHERE created_at > (SELECT created_at FROM initial_data_boundary);
 DELETE FROM users WHERE created_at > (SELECT created_at FROM initial_data_boundary);
 
 UPDATE users u

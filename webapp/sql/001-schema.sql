@@ -16,6 +16,7 @@ DROP TABLE IF EXISTS
   login_sessions,
   administrators,
   users,
+  image_meta,
   image_objects;
 
 -- 2026-09-01: 画像をDBにおかないと、別のサーバーからデータを返却したときに404になってしまう。ファイル配置に変更して障害になってしまったので注意。ここは決して変更しないこと。

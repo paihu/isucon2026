@@ -136,11 +136,14 @@ module Isureal
           )
         ) AS valid
         %s
-      FROM image_objects i JOIN users u ON u.id = i.owner_user_id AND u.status = 'active'
+      FROM image_meta i JOIN users u ON u.id = i.owner_user_id AND u.status = 'active'
       WHERE i.id = $1
     SQL
     IMAGE_STATE_ONLY_SQL = format(IMAGE_STATE_SQL, '').freeze
-    IMAGE_STATE_WITH_DATA_SQL = format(IMAGE_STATE_SQL, ', i.data, i.origin').freeze
+    # 本体は created_at も指定して image_objects のパーティションを 1 つに絞る。JOIN や LATERAL にしないのは、
+    # 実行時の絞り込みが効かず、該当するまで古いパーティションから順に引くため。
+    IMAGE_OBJECT_SQL = 'SELECT d.%s FROM image_objects d WHERE d.id = i.id AND d.created_at = i.created_at'
+    IMAGE_STATE_WITH_DATA_SQL = format(IMAGE_STATE_SQL, ", (#{format(IMAGE_OBJECT_SQL, 'data')}) AS data, (#{format(IMAGE_OBJECT_SQL, 'origin')}) AS origin").freeze
     Connection.prepare_on_connect(IMAGE_STATE_ONLY_SQL, IMAGE_STATE_WITH_DATA_SQL)
 
     INT64_RANGE = (-(2**63)...(2**63))
@@ -174,7 +177,7 @@ module Isureal
       cached = nginx_uri || ImageCache.read(input[:image_id])
       state = cached && ImageStateCache.get(input[:image_id])
       row = state || db.get(cached ? IMAGE_STATE_ONLY_SQL : IMAGE_STATE_WITH_DATA_SQL, input[:image_id])
-      raise APIError.new(403, 'image_forbidden') if row.nil?
+      raise APIError.new(403, 'image_forbidden') if row.nil? || (row.key?(:data) && row[:data].nil?)
 
       key = ImageSignature.signing_key(row[:secret_key_hash])
       unless OpenSSL.fixed_length_secure_compare(sig, ImageSignature.signature(key, input[:image_id], exp))
