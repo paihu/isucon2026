@@ -18,7 +18,7 @@ module Isureal
     post('/api/auth/login') { login_handler }
     post('/api/auth/logout') { session_middleware(true) { logout_handler } }
     get('/api/users') { deferred_session_middleware { search_users_handler } }
-    get('/api/users/:userId') { session_middleware(true) { region_middleware { get_user_handler } } }
+    get('/api/users/:userId') { deferred_session_middleware { get_user_handler } }
     get('/api/me/export') { session_middleware(true) { region_middleware { export_posts_handler } } }
     get('/api/me') { session_middleware(true) { region_middleware { get_me_handler } } }
     patch('/api/me') { session_middleware(true) { update_me_handler } }

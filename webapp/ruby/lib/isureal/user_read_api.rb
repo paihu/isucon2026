@@ -37,15 +37,21 @@ module Isureal
       json_response(200, { items:, hasMore: has_more })
     end
 
+    GET_USER_SQL = <<~SQL
+      SELECT #{USER_COLUMNS.map { |column| "u.#{column}" }.join(', ')},
+        EXISTS (SELECT 1 FROM block_relations b WHERE (b.blocker_id = $1 AND b.blocked_id = u.id) OR (b.blocker_id = u.id AND b.blocked_id = $1)) AS blocked,
+        EXISTS (SELECT 1 FROM friendships f WHERE (f.user_low_id = $1 AND f.user_high_id = u.id) OR (f.user_low_id = u.id AND f.user_high_id = $1)) AS friend
+      FROM users u WHERE u.id = $2 AND u.status = 'active'
+    SQL
+
     def get_user_handler
       input = bind(GET_USER_REQUEST)
-      viewer = current_session.user_id
-      user = get_user(db, input[:user_id])
-      raise APIError.new(404, 'relationship_not_found') if user.nil?
-      raise APIError.new(404, 'relationship_not_found') if blocked?(db, viewer, user.id)
+      rows, = query_with_session([GET_USER_SQL, input[:user_id]])
+      row = rows.first
+      raise APIError.new(404, 'relationship_not_found') if row.nil? || row[:blocked]
 
-      friends = get_friend_ids(db, viewer)
-      user.bio = '' if user.account_type != 'certified_public' && !friends.include?(user.id)
+      user = User.from_row(row).set_image_key
+      user.bio = '' if user.account_type != 'certified_public' && !row[:friend]
       json_response(200, relationship_user_response(user))
     end
 

@@ -85,14 +85,6 @@ module Isureal
       rows.map { |row| Post.from_row(row).tap { |post| post.author = User.from_row(row, 'author').set_image_key } }
     end
 
-    def select_posts_with_author(db, conditions, *args)
-      posts_from_rows(db.select(posts_with_author_sql(conditions), *args))
-    end
-
-    def get_post_with_author(db, post_id)
-      select_posts_with_author(db, 'AND p.id = $1', post_id).first
-    end
-
     VIEWER_CONTEXT_TEMPLATE = <<~SQL
       WITH friends AS (
         SELECT CASE WHEN user_low_id = $1 THEN user_high_id ELSE user_low_id END AS id
@@ -124,12 +116,6 @@ module Isureal
     # 友達の友達（友達の交友関係の総当たり）は友達が多いと 10ms 以上かかるので、判定に使わない画面では取らない。
     VIEWER_CONTEXT_WITHOUT_FOF_SQL = format(VIEWER_CONTEXT_TEMPLATE, 'ARRAY[]::text[]')
 
-    def load_viewer_context(db, viewer_id, user = get_user(db, viewer_id))
-      return nil if user.nil?
-
-      viewer_context(user, db.get!(VIEWER_CONTEXT_SQL, user.id))
-    end
-
     def viewer_context(user, row)
       viewer = ViewerContext.new(user:, friends: {}, friends_of_friends: {}, mutual_friends: Hash.new(0))
       viewer.has_posted_today = row[:has_posted_today]
@@ -147,19 +133,6 @@ module Isureal
         end
       end
       viewer
-    end
-
-    def get_friend_ids(db, user_id)
-      db.select('SELECT user_low_id, user_high_id FROM friendships WHERE user_low_id = $1 OR user_high_id = $1', user_id).map do |friendship|
-        friendship[:user_low_id] == user_id ? friendship[:user_high_id] : friendship[:user_low_id]
-      end
-    end
-
-    def get_blocked_user_ids(db, user_id)
-      db.select_values(<<~SQL, user_id).to_h { |id| [id, true] }
-        SELECT CASE WHEN blocker_id = $1 THEN blocked_id ELSE blocker_id END
-        FROM block_relations WHERE blocker_id = $1 OR blocked_id = $1
-      SQL
     end
   end
 end

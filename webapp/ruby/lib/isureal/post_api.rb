@@ -103,12 +103,12 @@ module Isureal
 
     def get_post_handler
       input = bind(GET_POST_REQUEST)
-      post_rows, viewer_rows = query_with_session([posts_with_author_sql('AND p.id = $2'), input[:post_id]], [VIEWER_CONTEXT_SQL], prepare: true)
+      # 1 件の判定に友達の交友関係を総当たりする viewer context は重いので、isureal_can_interact で判定する。
+      post_rows, allowed = query_with_session([posts_with_author_sql('AND p.id = $2'), input[:post_id]],
+                                              ['SELECT isureal_can_interact($1, $2, $3)', input[:post_id], 'view'], prepare: true)
       post = posts_from_rows(post_rows).first
       raise APIError.new(404, 'post_not_found') if post.nil?
-
-      viewer = viewer_context(current_user, viewer_rows.first)
-      raise APIError.new(404, 'post_not_found') unless viewer.can_view?(post)
+      raise APIError.new(404, 'post_not_found') unless allowed.getvalue(0, 0)
 
       json_response(200, post_response(post, post.author))
     end

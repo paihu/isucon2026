@@ -18,8 +18,7 @@ module Isureal
     SQL
 
     # 開いている投稿期間の全投稿は数百行になるので、種類ごとの条件で先に絞る。最終的な判定は matches_feed? が行う。
-    # ここに挙げた種類は友達の友達を判定に使わない（friends は友達本人、public は公開範囲だけで見える）。
-    # IN (友達一覧) や following の絞り込みにしないのは、友達・フォロー先の全期間の投稿から結合する計画になり秒単位で遅くなるため。
+    # IN (友達一覧) や IN (フォロー先) にしないのは、友達・フォロー先の全期間の投稿から結合する計画になり秒単位で遅くなるため。
     FEED_FILTERS = {
       'friends' => <<~SQL,
         AND EXISTS (
@@ -29,7 +28,11 @@ module Isureal
         )
       SQL
       'public' => "AND p.visibility = 'public'",
+      'following' => 'AND EXISTS (SELECT 1 FROM follows fo WHERE fo.follower_id = $1 AND fo.followee_id = p.author_id)',
     }.freeze
+    # friends-of-friends を絞らないのは、投稿ごとに投稿者の交友関係を総当たりする計画になり、友達の多い利用者で 300ms を超えたため。
+    # friends は友達本人、public は公開範囲だけで見えるので、友達の友達（取得が重い）を判定に使わない。
+    FEEDS_WITHOUT_FRIENDS_OF_FRIENDS = %w[friends public].freeze
 
     def get_feed_handler
       input = bind(GET_FEED_REQUEST)
@@ -40,7 +43,7 @@ module Isureal
       raise APIError.new(400, 'invalid_pagination') if ranked && input[:before_score].nil? != input[:before_id].empty?
 
       before_posted_at, before_id = ranked ? [nil, ''] : input.values_at(:before_posted_at, :before_id)
-      viewer_rows, post_rows = query_with_session([FEED_FILTERS.key?(input[:feed]) ? VIEWER_CONTEXT_WITHOUT_FOF_SQL : VIEWER_CONTEXT_SQL], [posts_with_author_sql("#{FEED_FILTERS[input[:feed]]}\n#{FEED_CONDITIONS}"), before_posted_at, before_id], prepare: true)
+      viewer_rows, post_rows = query_with_session([FEEDS_WITHOUT_FRIENDS_OF_FRIENDS.include?(input[:feed]) ? VIEWER_CONTEXT_WITHOUT_FOF_SQL : VIEWER_CONTEXT_SQL], [posts_with_author_sql("#{FEED_FILTERS[input[:feed]]}\n#{FEED_CONDITIONS}"), before_posted_at, before_id], prepare: true)
       viewer = viewer_context(current_user, viewer_rows.first)
       following = viewer.following
       posts = posts_from_rows(post_rows)
