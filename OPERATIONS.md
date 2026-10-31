@@ -62,7 +62,7 @@ tools/compare-all.sh                  # 旧新の応答を突き合わせ（友�
 1. ベンチは **投稿期間の開始（admin）の応答を待って日を進める**。開始が遅いと最終日が間に合わずグランプリが 0 人になる（9429 点の回）。
 2. **asia2 の DB の CPU**。europe/america の利用者が増えると DB が詰まり、DB に近い asia が最も影響を受ける。asia のアプリは asia1 だけで受ける（`etc/nginx/upstream/asia.conf` で asia2 は backup）。asia1 が詰まったら asia2 に一部戻す。
 3. europe/america は **DB 往復回数**。トランザクションは PL/pgSQL 関数（`004-functions.sql`）にまとめて 1 往復にしている。
-4. Ruby の CPU の最大要因は画像 URL の署名（HMAC 1000 回）。期限を分単位に切り捨ててメモを効かせている。
+4. Ruby の CPU の最大要因は画像 URL の署名（HMAC 1000 回、rbspy で asia1 の CPU の約 3/4）。C（`webapp/ruby/ext/iterated_hmac.c`、`ruby.sh` が各ホストで gcc ビルド）で 4.2ms → 0.39ms。期限は 2 分単位に切り捨ててメモを効かせている。
 
 ## これまでの主な変更（詳細は git log）
 
