@@ -6,10 +6,10 @@
 
 | サーバ | 公開 IP | 内部 IP | 役割 |
 |---|---|---|---|
-| asia1 | 35.74.177.247 | 192.168.1.10 | nginx + Ruby アプリ。asia の入口。nginx が asia1 と asia2 の Puma に振り分ける |
+| asia1 | 35.74.177.247 | 192.168.1.10 | nginx + Ruby アプリ。asia の入口。asia のアプリは asia1 だけで受ける（asia2 の Puma は backup） |
 | europe1 | 13.113.23.51 | 192.168.2.10 | nginx + Ruby アプリ |
 | america1 | 13.112.188.233 | 192.168.3.10 | nginx + Ruby アプリ |
-| asia2 | 175.41.248.35 | 192.168.4.10 | PostgreSQL 16 + Ruby アプリ（asia の 2 台目。nginx は使わない） |
+| asia2 | 175.41.248.35 | 192.168.4.10 | PostgreSQL 16（+ asia1 が落ちたときの予備の Ruby アプリ。nginx は使わない） |
 
 - ssh は `ssh isucon@<公開 IP>`。sudo 可。
 - europe/america から asia2 の DB までは 1 往復約 100ms。**応答時間はほぼ DB 往復回数で決まる。**
@@ -60,7 +60,7 @@ tools/compare-all.sh                  # 旧新の応答を突き合わせ（友�
 ## スコアを左右した事実（重要度順）
 
 1. ベンチは **投稿期間の開始（admin）の応答を待って日を進める**。開始が遅いと最終日が間に合わずグランプリが 0 人になる（9429 点の回）。
-2. **asia の CPU**。asia1 と asia2 の Puma に振り分け（現在 2:1、`etc/nginx/upstream/asia.conf`）。asia2 は DB と同居なので寄せすぎると DB が詰まり全リージョンが遅くなる。
+2. **asia2 の DB の CPU**。europe/america の利用者が増えると DB が詰まり、DB に近い asia が最も影響を受ける。asia のアプリは asia1 だけで受ける（`etc/nginx/upstream/asia.conf` で asia2 は backup）。asia1 が詰まったら asia2 に一部戻す。
 3. europe/america は **DB 往復回数**。トランザクションは PL/pgSQL 関数（`004-functions.sql`）にまとめて 1 往復にしている。
 4. Ruby の CPU の最大要因は画像 URL の署名（HMAC 1000 回）。期限を分単位に切り捨ててメモを効かせている。
 
@@ -76,7 +76,7 @@ tools/compare-all.sh                  # 旧新の応答を突き合わせ（友�
 - ログレベル既定 info（`isureal-guard` が info のアクションログで BAN するので error にしない）
 - 2MB 以上の `PUT /api/me/profile-image` の本文は nginx がアプリに渡さない（空の本文として渡し、アプリは不正画像と同じ 400 と abuse ログを返す）。不正アップロードは平均 24MB、正規は最大 26KB
 - 投稿・RealMoji・プロフィール画像の作成時に自サーバーの画像キャッシュへ書く
-- Puma: europe/america はスレッド 32・DB 接続 31（worker ごと）、asia は 16・15（`config/puma.rb` で `ISUREAL_REGION` から決定）。asia2 の `max_connections = 300`（アプリの接続は合計約 186）
+- Puma: europe/america はスレッド 32・DB 接続 31（worker ごと）、asia は 16・15（`config/puma.rb` で `ISUREAL_REGION` から決定）。asia2 の PostgreSQL は `max_connections = 300`（アプリの接続は合計約 186）、`shared_buffers = 512MB`、`wal_buffers = 64MB`、`max_wal_size = 4GB`（wal_buffers 4MB では WAL 書き出しの 96% がバッファ満杯によるものだった）
 - asia2 の PostgreSQL は `synchronous_commit = off`（ALTER SYSTEM。OS ごと落ちると直前 1 秒弱のコミットを失いうるが、正常な再起動では失わない）
 
 ## 再起動への耐性（2026-10-31 にローカルで確認）
