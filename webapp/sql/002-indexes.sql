@@ -14,3 +14,5 @@ CREATE INDEX IF NOT EXISTS friend_requests_pending_recipient ON friend_requests(
 CREATE INDEX IF NOT EXISTS posts_image_id ON posts(image_id);
 CREATE INDEX IF NOT EXISTS realmojis_image_id ON realmojis(image_id);
 CREATE INDEX IF NOT EXISTS notifications_user_id_created_at ON notifications(user_id, created_at);
+-- JPEG は圧縮できないので、TOAST の圧縮を試みない。
+ALTER TABLE image_objects ALTER COLUMN data SET STORAGE EXTERNAL;
