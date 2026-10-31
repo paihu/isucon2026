@@ -18,7 +18,8 @@ module Isureal
 
       seconds = input[:on_time_seconds] || (24 * 60 * 60)
       window = db.transaction do |tx|
-        tx.exec('LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE')
+        # 同じリージョンの開始だけを直列にする。LOCK TABLE users だと全リージョンの開始と users への書き込みが待たされる。
+        tx.exec("SELECT pg_advisory_xact_lock(hashtext('posting_window:' || $1))", region)
         if tx.get_value!('SELECT EXISTS(SELECT 1 FROM posting_windows WHERE region = $1 AND local_date >= $2)', region, local_date)
           raise APIError.new(409, 'posting_window_conflict')
         end
@@ -29,10 +30,6 @@ module Isureal
         tx.exec(<<~SQL, window_id, region, local_date, starts_at, starts_at + seconds)
           INSERT INTO posting_windows (id, region, local_date, starts_at, on_time_deadline)
           VALUES ($1, $2, $3, $4, $5)
-        SQL
-        tx.exec(<<~SQL, region, window_id, starts_at)
-          INSERT INTO notifications (id, user_id, posting_window_id, created_at)
-          SELECT gen_random_uuid()::text, id, $2, $3 FROM users WHERE region = $1 AND status = 'active'
         SQL
         get_posting_window(tx, window_id) or raise NoRowsError
       end

@@ -6,6 +6,20 @@ module Isureal
   class App
     NOTIFICATION_POLL_INTERVAL = 0.5
 
+    # 通知を行として保存しないのは、投稿期間の開始時にリージョンの全利用者分を INSERT すると数秒かかるため。
+    # 開始時点で登録済みの利用者を対象とし、ID は（投稿期間, 利用者）から決定的に作る。
+    NOTIFICATION_SQL = <<~SQL
+      SELECT u.region AS user_region, n.id, n.posting_window_id, n.region, n.created_at
+      FROM users u
+      LEFT JOIN LATERAL (
+        SELECT md5(w.id || ':' || u.id)::uuid::text AS id, w.id AS posting_window_id, w.region, w.starts_at AS created_at
+        FROM posting_windows w
+        WHERE w.region = u.region AND w.ended_at IS NULL AND w.starts_at > $2 AND u.created_at <= w.starts_at
+        ORDER BY w.starts_at, w.id LIMIT 1
+      ) n ON true
+      WHERE u.id = $1 AND u.status = 'active'
+    SQL
+
     def get_notifications_handler
       session = current_session
       user_id = session.user_id
@@ -29,24 +43,14 @@ module Isureal
       next_tick = monotonic_now + NOTIFICATION_POLL_INTERVAL
       loop do
         begin
-          user = get_user(db, user_id)
-        rescue StandardError => e
-          Log.error('failed to get notification recipient', e.message)
-          return
-        end
-        return if user.nil? || user.region != session.region
-
-        begin
-          notification = db.get(<<~SQL, user_id, connected_at)
-            SELECT n.id, n.posting_window_id, w.region, n.created_at
-            FROM notifications n JOIN posting_windows w ON w.id = n.posting_window_id
-            WHERE n.user_id = $1 AND n.created_at > $2 AND w.ended_at IS NULL
-            ORDER BY n.created_at, n.id LIMIT 1
-          SQL
+          row = db.get(NOTIFICATION_SQL, user_id, connected_at)
         rescue StandardError => e
           Log.error('failed to get notification', e.message)
           return
         end
+        return if row.nil? || row[:user_region] != session.region
+
+        notification = row[:posting_window_id] && row
         unless notification.nil?
           data = Response.encode_json({
             id: notification[:id], postingWindowId: notification[:posting_window_id],
