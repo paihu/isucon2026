@@ -74,6 +74,9 @@ tools/compare-all.sh                  # 旧新の応答を突き合わせ（友�
 - IP BAN の一覧・開いている投稿期間はバックグラウンドで読み直す
 - 本文の一時ファイルを `/dev/shm` に、nginx は `proxy_request_buffering off`
 - ログレベル既定 info（`isureal-guard` が info のアクションログで BAN するので error にしない）
+- 2MB 以上の `PUT /api/me/profile-image` の本文は nginx がアプリに渡さない（空の本文として渡し、アプリは不正画像と同じ 400 と abuse ログを返す）。不正アップロードは平均 24MB、正規は最大 26KB
+- 投稿・RealMoji・プロフィール画像の作成時に自サーバーの画像キャッシュへ書く
+- asia2 の PostgreSQL は `synchronous_commit = off`（ALTER SYSTEM。OS ごと落ちると直前 1 秒弱のコミットを失いうるが、正常な再起動では失わない）
 
 ## 再起動への耐性（2026-10-31 にローカルで確認）
 
