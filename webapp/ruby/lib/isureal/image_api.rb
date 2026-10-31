@@ -37,6 +37,27 @@ module Isureal
 
   FileUtils.mkdir_p(ImageCache::DIR)
 
+  # 削除から 5 秒以内は画像を返してよいので、有効と確認した状態を TTL の間だけ DB に問い合わせずに使う。
+  module ImageStateCache
+    TTL = 3.0
+    LIMIT = 100_000
+    @entries = {}
+
+    module_function
+
+    def get(id)
+      entry = @entries[id]
+      entry if entry && entry[:expires_at] > now
+    end
+
+    def put(id, row)
+      @entries.clear if @entries.size >= LIMIT
+      @entries[id] = { secret_key_hash: row[:secret_key_hash], media_type: row[:media_type], valid: true, expires_at: now + TTL }
+    end
+
+    def now = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+  end
+
   class App
     GET_IMAGE_REQUEST = {
       image_id: { param: 'imageId' },
@@ -92,9 +113,9 @@ module Isureal
       sig = ImageSignature.decode(input[:sig])
       raise APIError.new(403, 'image_forbidden') if sig.nil? || sig.bytesize != 32
 
-      # 削除状態を毎回確認する。即時反映も5秒以内の許容範囲に含まれる。
       cached = ImageCache.read(input[:image_id])
-      row = db.get(cached ? IMAGE_STATE_ONLY_SQL : IMAGE_STATE_WITH_DATA_SQL, input[:image_id])
+      state = cached && ImageStateCache.get(input[:image_id])
+      row = state || db.get(cached ? IMAGE_STATE_ONLY_SQL : IMAGE_STATE_WITH_DATA_SQL, input[:image_id])
       raise APIError.new(403, 'image_forbidden') if row.nil?
 
       key = ImageSignature.signing_key(row[:secret_key_hash])
@@ -106,6 +127,7 @@ module Isureal
       raise APIError.new(403, 'image_forbidden') if exp <= Time.now.to_i
 
       ImageCache.write(input[:image_id], row[:data]) unless cached
+      ImageStateCache.put(input[:image_id], row) unless state
       blob(200, row[:media_type], cached || row[:data])
     end
   end

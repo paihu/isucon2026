@@ -36,8 +36,11 @@ module Isureal
 
       width, height, _subsampling, colorspace = header.read_array_of_int(4)
       cmyk = [TurboJPEG::CS_CMYK, TurboJPEG::CS_YCCK].include?(colorspace)
-      pixels = FFI::MemoryPointer.new(:uint8, width * height * (cmyk ? 4 : 3), false)
-      status = TurboJPEG.tjDecompress2(handle, jpeg, data.bytesize, pixels, width, 0, height,
+      # 1/8 に縮小して展開する。エントロピー復号は全量行うので壊れたデータの検出は変わらず、IDCT と画素バッファだけ小さくなる。
+      scaled_width = (width + 7) / 8
+      scaled_height = (height + 7) / 8
+      pixels = FFI::MemoryPointer.new(:uint8, scaled_width * scaled_height * (cmyk ? 4 : 3), false)
+      status = TurboJPEG.tjDecompress2(handle, jpeg, data.bytesize, pixels, scaled_width, 0, scaled_height,
                                        cmyk ? TurboJPEG::PF_CMYK : TurboJPEG::PF_RGB, TurboJPEG::FLAG_STOPONWARNING)
       status.zero? ? Image.new(width:, height:) : nil
     ensure
