@@ -3,7 +3,7 @@
 require 'sinatra/base'
 
 module Isureal
-  HandlerContext = Data.define(:db, :config, :ip_bans)
+  HandlerContext = Data.define(:db, :config, :ip_bans, :notification_hub)
 
   class App < Sinatra::Base
     set :environment, :production
@@ -32,6 +32,8 @@ module Isureal
     def config = @handler_context.config
 
     def ip_bans = @handler_context.ip_bans
+
+    def notification_hub = @handler_context.notification_hub
 
     def json_response(code, value)
       status code
