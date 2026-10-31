@@ -14,7 +14,7 @@ module Isureal
       <<~SQL
         SELECT r.id, r.post_id, r.reactor_id, r.image_id, r.reaction_type, r.created_at, r.replaced_at, r.deleted_at,
                #{user_columns_as('u', 'reactor')}
-        FROM realmojis r JOIN users u ON u.id = r.reactor_id AND u.status = 'active'
+        FROM realmojis r #{active_user_lateral('u', 'r.reactor_id')}
         WHERE r.replaced_at IS NULL AND r.deleted_at IS NULL #{conditions}
       SQL
     end

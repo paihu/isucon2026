@@ -46,6 +46,12 @@ module Isureal
       USER_COLUMNS.map { |column| %(#{table_alias}.#{column} AS "#{prefix}.#{column}") }.join(', ')
     end
 
+    # 少数の行に投稿者などを付けるときの結合。投稿をまとめて引くと行数を多く見積もり、利用者全員を
+    # シーケンシャルスキャンするハッシュ結合になったので、OFFSET 0 で展開を止めて主キーで 1 件ずつ引かせる。
+    def active_user_lateral(table_alias, user_id_column)
+      "JOIN LATERAL (SELECT * FROM users WHERE id = #{user_id_column} AND status = 'active' OFFSET 0) #{table_alias} ON true"
+    end
+
     def get_user(db, user_id)
       row = db.get("SELECT #{USER_COLUMNS.join(', ')} FROM users WHERE id = $1 AND status = 'active'", user_id)
       row && User.from_row(row).set_image_key

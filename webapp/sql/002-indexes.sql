@@ -9,7 +9,10 @@ CREATE INDEX IF NOT EXISTS users_search_display_name_trgm ON users USING gin (se
 CREATE INDEX IF NOT EXISTS login_sessions_token_hash ON login_sessions(token_hash);
 CREATE INDEX IF NOT EXISTS login_sessions_user_id ON login_sessions(user_id);
 CREATE INDEX IF NOT EXISTS administrator_sessions_token_hash ON administrator_sessions(token_hash);
-CREATE INDEX IF NOT EXISTS friendships_user_high_id ON friendships(user_high_id);
+-- 友達判定（user_low_id と user_high_id の両方が決まる）を 1 件の参照で済ませるため、user_high_id 単独ではなく複合にする。
+-- 単独の索引だと、閲覧者が user_high_id 側に来たときに閲覧者の交友関係を全部読んでから絞っていた。
+CREATE INDEX IF NOT EXISTS friendships_user_high_id_user_low_id ON friendships(user_high_id, user_low_id);
+DROP INDEX IF EXISTS friendships_user_high_id;
 CREATE INDEX IF NOT EXISTS follows_followee_id ON follows(followee_id);
 CREATE INDEX IF NOT EXISTS block_relations_blocked_id ON block_relations(blocked_id);
 CREATE INDEX IF NOT EXISTS friend_requests_pending_pair ON friend_requests(requester_id, recipient_id) WHERE status = 'pending';

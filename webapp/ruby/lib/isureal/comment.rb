@@ -13,7 +13,7 @@ module Isureal
     def comments_with_author_sql(conditions)
       <<~SQL
         SELECT c.id, c.post_id, c.author_id, c.body, c.created_at, c.deleted_at, #{user_columns_as('u', 'author')}
-        FROM comments c JOIN users u ON u.id = c.author_id AND u.status = 'active'
+        FROM comments c #{active_user_lateral('u', 'c.author_id')}
         WHERE c.deleted_at IS NULL #{conditions}
       SQL
     end
