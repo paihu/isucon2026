@@ -74,3 +74,102 @@ BEGIN
   WHERE p.id = p_post_id;
 END
 $$;
+
+-- 友達申請の結果は result で返す: ok / not_found / forbidden / conflict。
+-- ロック順と low/high は Ruby の String 比較（バイト順）に合わせるため COLLATE "C" で比較する。
+CREATE OR REPLACE FUNCTION isureal_lock_pair(p_a text, p_b text) RETURNS boolean
+LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM 1 FROM users WHERE users.id = least(p_a COLLATE "C", p_b) AND users.status = 'active' FOR NO KEY UPDATE;
+  IF NOT FOUND THEN
+    RETURN false;
+  END IF;
+  PERFORM 1 FROM users WHERE users.id = greatest(p_a COLLATE "C", p_b) AND users.status = 'active' FOR NO KEY UPDATE;
+  RETURN FOUND;
+END
+$$;
+
+CREATE OR REPLACE FUNCTION isureal_create_friend_request(p_actor text, p_recipient text, p_request_id text, p_friendship_id text)
+RETURNS TABLE (result text, id varchar, status text, updated_at timestamptz)
+LANGUAGE plpgsql AS $$
+#variable_conflict use_column
+DECLARE
+  existing friend_requests;
+  target_id text;
+BEGIN
+  IF NOT isureal_lock_pair(p_actor, p_recipient) THEN
+    RETURN QUERY SELECT 'not_found'::text, NULL::varchar, NULL::text, NULL::timestamptz;
+    RETURN;
+  END IF;
+  IF EXISTS (SELECT 1 FROM block_relations b WHERE (b.blocker_id = p_actor AND b.blocked_id = p_recipient)
+                                                OR (b.blocker_id = p_recipient AND b.blocked_id = p_actor))
+     OR EXISTS (SELECT 1 FROM friendships f WHERE f.user_low_id = least(p_actor COLLATE "C", p_recipient)
+                                              AND f.user_high_id = greatest(p_actor COLLATE "C", p_recipient)) THEN
+    RETURN QUERY SELECT 'conflict'::text, NULL::varchar, NULL::text, NULL::timestamptz;
+    RETURN;
+  END IF;
+
+  SELECT * INTO existing FROM friend_requests r
+  WHERE r.status = 'pending' AND ((r.requester_id = p_actor AND r.recipient_id = p_recipient)
+                               OR (r.requester_id = p_recipient AND r.recipient_id = p_actor))
+  LIMIT 1;
+  IF FOUND THEN
+    IF existing.requester_id = p_actor THEN
+      RETURN QUERY SELECT 'conflict'::text, NULL::varchar, NULL::text, NULL::timestamptz;
+      RETURN;
+    END IF;
+    UPDATE friend_requests r SET status = 'accepted', updated_at = clock_timestamp() WHERE r.id = existing.id;
+    INSERT INTO friendships (id, user_low_id, user_high_id, source_request_id)
+    VALUES (p_friendship_id, least(p_actor COLLATE "C", p_recipient), greatest(p_actor COLLATE "C", p_recipient), existing.id);
+    target_id := existing.id;
+  ELSE
+    INSERT INTO friend_requests (id, requester_id, recipient_id, status, created_at, updated_at)
+    VALUES (p_request_id, p_actor, p_recipient, 'pending', clock_timestamp(), clock_timestamp());
+    target_id := p_request_id;
+  END IF;
+
+  RETURN QUERY SELECT 'ok'::text, r.id, r.status, r.updated_at FROM friend_requests r WHERE r.id = target_id;
+END
+$$;
+
+CREATE OR REPLACE FUNCTION isureal_transition_friend_request(p_actor text, p_request_id text, p_status text, p_friendship_id text)
+RETURNS TABLE (result text, id varchar, status text, updated_at timestamptz)
+LANGUAGE plpgsql AS $$
+#variable_conflict use_column
+DECLARE
+  request friend_requests;
+BEGIN
+  SELECT * INTO request FROM friend_requests r WHERE r.id = p_request_id;
+  IF NOT FOUND THEN
+    RETURN QUERY SELECT 'not_found'::text, NULL::varchar, NULL::text, NULL::timestamptz;
+    RETURN;
+  END IF;
+  IF (p_status = 'cancelled' AND p_actor <> request.requester_id) OR (p_status <> 'cancelled' AND p_actor <> request.recipient_id) THEN
+    RETURN QUERY SELECT 'forbidden'::text, NULL::varchar, NULL::text, NULL::timestamptz;
+    RETURN;
+  END IF;
+  IF NOT isureal_lock_pair(request.requester_id, request.recipient_id) THEN
+    RETURN QUERY SELECT 'not_found'::text, NULL::varchar, NULL::text, NULL::timestamptz;
+    RETURN;
+  END IF;
+
+  SELECT * INTO request FROM friend_requests r WHERE r.id = p_request_id;
+  IF request.status <> 'pending' THEN
+    RETURN QUERY SELECT 'forbidden'::text, NULL::varchar, NULL::text, NULL::timestamptz;
+    RETURN;
+  END IF;
+  IF p_status = 'accepted' THEN
+    IF EXISTS (SELECT 1 FROM block_relations b WHERE (b.blocker_id = request.requester_id AND b.blocked_id = request.recipient_id)
+                                                  OR (b.blocker_id = request.recipient_id AND b.blocked_id = request.requester_id)) THEN
+      RETURN QUERY SELECT 'conflict'::text, NULL::varchar, NULL::text, NULL::timestamptz;
+      RETURN;
+    END IF;
+    INSERT INTO friendships (id, user_low_id, user_high_id, source_request_id)
+    VALUES (p_friendship_id, least(request.requester_id COLLATE "C", request.recipient_id),
+            greatest(request.requester_id COLLATE "C", request.recipient_id), request.id);
+  END IF;
+  UPDATE friend_requests r SET status = p_status, updated_at = clock_timestamp() WHERE r.id = request.id;
+
+  RETURN QUERY SELECT 'ok'::text, r.id, r.status, r.updated_at FROM friend_requests r WHERE r.id = request.id;
+END
+$$;
