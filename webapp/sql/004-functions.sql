@@ -42,9 +42,10 @@ BEGIN
   END IF;
 
   -- open_posting_window と競合すると 1 回目は 0 行になるので、新しいスナップショットで再取得する。
-  SELECT * INTO w FROM posting_windows WHERE region = u.region AND ended_at IS NULL FOR UPDATE;
+  -- FOR UPDATE にしないのは、同じリージョンの投稿同士がこの 1 行で直列になるため。FOR SHARE でも投稿期間の終了（UPDATE）とは競合する。
+  SELECT * INTO w FROM posting_windows WHERE region = u.region AND ended_at IS NULL FOR SHARE;
   IF NOT FOUND THEN
-    SELECT * INTO w FROM posting_windows WHERE region = u.region AND ended_at IS NULL FOR UPDATE;
+    SELECT * INTO w FROM posting_windows WHERE region = u.region AND ended_at IS NULL FOR SHARE;
     IF NOT FOUND THEN
       RETURN;
     END IF;
@@ -77,14 +78,15 @@ $$;
 
 -- 友達申請の結果は result で返す: ok / not_found / forbidden / conflict。
 -- ロック順と low/high は Ruby の String 比較（バイト順）に合わせるため COLLATE "C" で比較する。
+-- 結果に COLLATE "default" を付けるのは、列と照合順序が食い違うとインデックスが使われないため。
 CREATE OR REPLACE FUNCTION isureal_lock_pair(p_a text, p_b text) RETURNS boolean
 LANGUAGE plpgsql AS $$
 BEGIN
-  PERFORM 1 FROM users WHERE users.id = least(p_a COLLATE "C", p_b) AND users.status = 'active' FOR NO KEY UPDATE;
+  PERFORM 1 FROM users WHERE users.id = (least(p_a COLLATE "C", p_b) COLLATE "default") AND users.status = 'active' FOR NO KEY UPDATE;
   IF NOT FOUND THEN
     RETURN false;
   END IF;
-  PERFORM 1 FROM users WHERE users.id = greatest(p_a COLLATE "C", p_b) AND users.status = 'active' FOR NO KEY UPDATE;
+  PERFORM 1 FROM users WHERE users.id = (greatest(p_a COLLATE "C", p_b) COLLATE "default") AND users.status = 'active' FOR NO KEY UPDATE;
   RETURN FOUND;
 END
 $$;
@@ -103,8 +105,8 @@ BEGIN
   END IF;
   IF EXISTS (SELECT 1 FROM block_relations b WHERE (b.blocker_id = p_actor AND b.blocked_id = p_recipient)
                                                 OR (b.blocker_id = p_recipient AND b.blocked_id = p_actor))
-     OR EXISTS (SELECT 1 FROM friendships f WHERE f.user_low_id = least(p_actor COLLATE "C", p_recipient)
-                                              AND f.user_high_id = greatest(p_actor COLLATE "C", p_recipient)) THEN
+     OR EXISTS (SELECT 1 FROM friendships f WHERE f.user_low_id = (least(p_actor COLLATE "C", p_recipient) COLLATE "default")
+                                              AND f.user_high_id = (greatest(p_actor COLLATE "C", p_recipient) COLLATE "default")) THEN
     RETURN QUERY SELECT 'conflict'::text, NULL::varchar, NULL::text, NULL::timestamptz;
     RETURN;
   END IF;
@@ -120,7 +122,7 @@ BEGIN
     END IF;
     UPDATE friend_requests r SET status = 'accepted', updated_at = clock_timestamp() WHERE r.id = existing.id;
     INSERT INTO friendships (id, user_low_id, user_high_id, source_request_id)
-    VALUES (p_friendship_id, least(p_actor COLLATE "C", p_recipient), greatest(p_actor COLLATE "C", p_recipient), existing.id);
+    VALUES (p_friendship_id, (least(p_actor COLLATE "C", p_recipient) COLLATE "default"), (greatest(p_actor COLLATE "C", p_recipient) COLLATE "default"), existing.id);
     target_id := existing.id;
   ELSE
     INSERT INTO friend_requests (id, requester_id, recipient_id, status, created_at, updated_at)
@@ -165,8 +167,8 @@ BEGIN
       RETURN;
     END IF;
     INSERT INTO friendships (id, user_low_id, user_high_id, source_request_id)
-    VALUES (p_friendship_id, least(request.requester_id COLLATE "C", request.recipient_id),
-            greatest(request.requester_id COLLATE "C", request.recipient_id), request.id);
+    VALUES (p_friendship_id, (least(request.requester_id COLLATE "C", request.recipient_id) COLLATE "default"),
+            (greatest(request.requester_id COLLATE "C", request.recipient_id) COLLATE "default"), request.id);
   END IF;
   UPDATE friend_requests r SET status = p_status, updated_at = clock_timestamp() WHERE r.id = request.id;
 
@@ -177,7 +179,7 @@ $$;
 -- ViewerContext#can_view? / App#can_comment? と同じ判定。
 CREATE OR REPLACE FUNCTION isureal_is_friend(p_a text, p_b text) RETURNS boolean
 LANGUAGE sql STABLE AS $$
-  SELECT EXISTS (SELECT 1 FROM friendships f WHERE f.user_low_id = least(p_a COLLATE "C", p_b) AND f.user_high_id = greatest(p_a COLLATE "C", p_b))
+  SELECT EXISTS (SELECT 1 FROM friendships f WHERE f.user_low_id = (least(p_a COLLATE "C", p_b) COLLATE "default") AND f.user_high_id = (greatest(p_a COLLATE "C", p_b) COLLATE "default"))
 $$;
 
 CREATE OR REPLACE FUNCTION isureal_has_posted_today(p_user text, p_region text) RETURNS boolean
@@ -222,11 +224,9 @@ BEGIN
   ELSIF post.visibility = 'friends' THEN
     can_view := isureal_is_friend(p_viewer, post.author_id);
   ELSIF post.visibility = 'friends_of_friends' THEN
-    can_view := isureal_is_friend(p_viewer, post.author_id) OR EXISTS (
-      SELECT 1 FROM friendships af
-      WHERE (af.user_low_id = post.author_id AND isureal_is_friend(p_viewer, af.user_high_id))
-         OR (af.user_high_id = post.author_id AND isureal_is_friend(p_viewer, af.user_low_id))
-    );
+    can_view := isureal_is_friend(p_viewer, post.author_id)
+      OR EXISTS (SELECT 1 FROM friendships af WHERE af.user_low_id = post.author_id AND isureal_is_friend(p_viewer, af.user_high_id))
+      OR EXISTS (SELECT 1 FROM friendships af WHERE af.user_high_id = post.author_id AND isureal_is_friend(p_viewer, af.user_low_id));
   ELSE
     can_view := false;
   END IF;
@@ -255,7 +255,7 @@ BEGIN
   END IF;
 
   IF p_action = 'unfriend' THEN
-    DELETE FROM friendships f WHERE f.user_low_id = least(p_actor COLLATE "C", p_target) AND f.user_high_id = greatest(p_actor COLLATE "C", p_target);
+    DELETE FROM friendships f WHERE f.user_low_id = (least(p_actor COLLATE "C", p_target) COLLATE "default") AND f.user_high_id = (greatest(p_actor COLLATE "C", p_target) COLLATE "default");
     GET DIAGNOSTICS changed = ROW_COUNT;
     RETURN CASE WHEN changed = 0 THEN 'conflict' ELSE 'ok' END;
   ELSIF p_action = 'follow' THEN
@@ -275,7 +275,7 @@ BEGIN
       RETURN 'conflict';
     END IF;
     INSERT INTO block_relations (id, blocker_id, blocked_id) VALUES (p_id, p_actor, p_target);
-    DELETE FROM friendships f WHERE f.user_low_id = least(p_actor COLLATE "C", p_target) AND f.user_high_id = greatest(p_actor COLLATE "C", p_target);
+    DELETE FROM friendships f WHERE f.user_low_id = (least(p_actor COLLATE "C", p_target) COLLATE "default") AND f.user_high_id = (greatest(p_actor COLLATE "C", p_target) COLLATE "default");
     DELETE FROM follows fo WHERE (fo.follower_id = p_actor AND fo.followee_id = p_target) OR (fo.follower_id = p_target AND fo.followee_id = p_actor);
     UPDATE friend_requests r SET status = 'cancelled', updated_at = clock_timestamp()
     WHERE r.status = 'pending' AND ((r.requester_id = p_actor AND r.recipient_id = p_target) OR (r.requester_id = p_target AND r.recipient_id = p_actor));
@@ -302,12 +302,12 @@ BEGIN
     RETURN QUERY SELECT 'forbidden'::text, NULL::varchar, NULL::varchar, NULL::varchar, NULL::text, NULL::timestamptz;
     RETURN;
   END IF;
-  PERFORM 1 FROM users u WHERE u.id = least(p_actor COLLATE "C", post_author) FOR NO KEY UPDATE;
+  PERFORM 1 FROM users u WHERE u.id = (least(p_actor COLLATE "C", post_author) COLLATE "default") FOR NO KEY UPDATE;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'sql: no rows in result set';
   END IF;
   IF p_actor <> post_author THEN
-    PERFORM 1 FROM users u WHERE u.id = greatest(p_actor COLLATE "C", post_author) FOR NO KEY UPDATE;
+    PERFORM 1 FROM users u WHERE u.id = (greatest(p_actor COLLATE "C", post_author) COLLATE "default") FOR NO KEY UPDATE;
     IF NOT FOUND THEN
       RAISE EXCEPTION 'sql: no rows in result set';
     END IF;
