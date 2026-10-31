@@ -43,6 +43,7 @@ module Isureal
       row = db.get!('SELECT * FROM isureal_replace_realmoji($1, $2, $3, $4, $5, $6)',
                     current_user.id, input[:post_id], SecureRandom.uuid, data, SecureRandom.uuid, input[:reaction_type])
       raise_interaction_error(row[:result])
+      ImageCache.write(row[:image_id], data)
 
       reaction = RealMoji.from_row(row)
       user = current_user

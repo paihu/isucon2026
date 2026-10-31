@@ -53,6 +53,8 @@ module Isureal
                    location[:kind], location[:latitude], location[:longitude], location[:locality])
       raise APIError.new(409, 'post_slot_unavailable') if row.nil?
 
+      ImageCache.write(row[:image_id], image_data)
+
       json_response(201, post_response(Post.from_row(row), user))
     end
 
