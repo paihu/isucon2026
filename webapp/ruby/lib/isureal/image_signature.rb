@@ -49,8 +49,11 @@ module Isureal
       nil
     end
 
+    # 期限を分単位に切り捨てるのは、同じ画像の URL を 1 分間同じにして署名（HMAC 1000 回）のメモを効かせるため。
+    EXP_GRANULARITY = 60
+
     def signed_url(user, image_id)
-      exp = Time.now.to_i + IMAGE_URL_LIFETIME
+      exp = (Time.now.to_i / EXP_GRANULARITY * EXP_GRANULARITY) + IMAGE_URL_LIFETIME
       sig = encode(signature(user.image_key, image_id, exp))
       "/api/images/#{escape_path(image_id)}?exp=#{exp}&sig=#{sig}"
     end
