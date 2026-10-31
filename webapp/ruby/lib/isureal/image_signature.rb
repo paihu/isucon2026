@@ -105,8 +105,8 @@ module Isureal
       nil
     end
 
-    # 期限を 2 分単位に切り捨てるのは、同じ画像の URL を 2 分間同じにして署名（HMAC 1000 回）のメモを効かせるため。
-    EXP_GRANULARITY = 120
+    # 期限を分単位に切り捨てるのは、同じ画像の URL を 1 分間同じにして署名（HMAC 1000 回）のメモを効かせるため。
+    EXP_GRANULARITY = 60
 
     # 呼び出し元はどれも、その時点で有効な画像を持ち主の user で署名するので、有効な状態として入れておける。
     # media_type を固定にするのは、作成時は常に image/jpeg で、初期データも全件 image/jpeg のため。
