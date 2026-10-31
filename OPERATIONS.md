@@ -90,6 +90,9 @@ tools/compare-all.sh                  # 旧新の応答を突き合わせ（友�
 ## 再起動への耐性（2026-10-31 にローカルで確認）
 
 - アプリが DB より先に起動しても、worker の起動失敗を Puma が繰り返し、DB が上がれば約 5 秒で自動復旧する（失敗中は CPU とログを消費する）。
+- 再起動直後にベンチを回す場合: europe/america のワーカーの起動は、起動時の DB 接続を並列で張るようにして 24 秒 → 約 2.5 秒になった（それまでは起動直後のベンチが地域チェックでタイムアウトして FAIL した）。念のため再起動後は `journalctl -u isureal-ruby | grep booted` を確認してから回す。
+- `/dev/shm` の中身は systemd-logind（RemoveIPC=yes）が isucon の SSH セッションが全部閉じたときに消す。画像状態キャッシュは書き込み時に作り直し、署名キャッシュも書き込み時に作るので影響はない。
+- Puma のファイル数上限は drop-in で 65536（既定のソフト上限 1024 では asia が 400 人を超えて Too many open files になった）。
 - アプリ稼働中に DB だけ再起動すると、直後の数秒は 500 になるが、IP BAN・投稿期間を読み直すバックグラウンドスレッドが切れた接続を捨てるので約 2 秒で回復する。
 - PostgreSQL を再起動したら `ruby.sh` でアプリも再起動する（起動時に張る接続が切れ、張り直しは使われた分だけになるため）。
 - 自動起動: 3 台は isureal-ruby / nginx / isureal-guard が enabled、asia2 は isureal-ruby / isureal-guard / postgresql が enabled（nginx は使わない）。
