@@ -31,6 +31,11 @@
 
 ## ベンチ後の計測
 
+> **2026-10-31 の最終走行に向けて計測を止めている。** 計測するときは次の 3 つを戻す。
+> - nginx のアクセスログ: `etc/nginx/conf.d/alp.conf` の `access_log off;` を `access_log /var/log/nginx/access.log ltsv;` に戻して `ruby.sh`。
+> - pg_stat_statements: asia2 で `ALTER SYSTEM SET shared_preload_libraries = 'pg_stat_statements'; ALTER SYSTEM SET pg_stat_statements.track = 'all';` → PostgreSQL を再起動 → `ruby.sh`（アプリの DB 接続を張り直す）。
+> - アクションログは isureal-guard が BAN に使うもの（ログイン失敗の 401、abuse 付き）と 5xx だけを info で出す。全リクエストを見るには `ISUREAL_LOG_LEVEL=debug`。
+
 ```sh
 ./alp.sh                                   # 3 台の nginx ログを local/alp/<日時>/ に保存して集計
 tools/monitor.sh report 05:10:15 05:11:33  # ベンチ区間（UTC）の CPU・I/O・DB 上位クエリ

@@ -71,16 +71,18 @@ module Isureal
     private
 
     def write(env, status)
+      action = ACTION_NAMES[matched_route(env)]
+      # isureal-guard が BAN に使うのはログイン失敗と abuse 付きのログだけなので、それ以外は info にしない
+      # （全リクエストを journald に書くと、journald とそれを全部読むガードの CPU を使う）。
       level = if status >= 500
                 'error'
-              elsif env['REQUEST_METHOD'] == 'GET' && !(status == 403 && env['isureal.abuse'] == 'invalid_signature')
-                'debug'
-              else
+              elsif (action == 'login' && status == 401) || env['isureal.abuse']
                 'info'
+              else
+                'debug'
               end
       return if LOG_LEVEL_RANKS.fetch(level) < @min_rank
 
-      action = ACTION_NAMES[matched_route(env)]
       entry = { action:, ip: IPBan.extract_client_ip(env), level:, status:, user_id: env['isureal.session']&.user_id }
       if %w[login register].include?(action)
         username = env['isureal.username']
