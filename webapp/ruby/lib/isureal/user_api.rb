@@ -46,8 +46,11 @@ module Isureal
 
       secret_key = SecureRandom.uuid
       # ユーザー名の一意性は users_username_key（002-indexes.sql）で保証する。
-      row = db.get(<<~SQL, SecureRandom.uuid, input[:username], Digest::SHA256.hexdigest(secret_key), input[:display_name], input[:region])
-        INSERT INTO users (id, username, secret_key_hash, display_name, region) VALUES ($1, $2, $3, $4, $5)
+      params = [SecureRandom.uuid, input[:username], Digest::SHA256.hexdigest(secret_key), input[:display_name], input[:region],
+                SearchText.normalize(input[:username]), SearchText.normalize(input[:display_name])]
+      row = db.get(<<~SQL, *params)
+        INSERT INTO users (id, username, secret_key_hash, display_name, region, search_username, search_display_name)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         ON CONFLICT (username) DO NOTHING
         RETURNING #{USER_COLUMNS.join(', ')}
       SQL
@@ -98,7 +101,8 @@ module Isureal
 
       user = db.transaction do |tx|
         unless input[:display_name].nil?
-          tx.exec('UPDATE users SET display_name = $2, updated_at = clock_timestamp() WHERE id = $1', session.user_id, input[:display_name])
+          tx.exec('UPDATE users SET display_name = $2, search_display_name = $3, updated_at = clock_timestamp() WHERE id = $1',
+                  session.user_id, input[:display_name], SearchText.normalize(input[:display_name]))
         end
         unless input[:bio].nil?
           tx.exec('UPDATE users SET bio = $2, updated_at = clock_timestamp() WHERE id = $1', session.user_id, input[:bio])

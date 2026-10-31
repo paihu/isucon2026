@@ -12,30 +12,25 @@ module Isureal
       user_id: { param: 'userId' },
     }.freeze
 
-    def normalize_search_text(value)
-      value.unicode_normalize(:nfc).downcase(:fold).unicode_normalize(:nfc)
-    end
+    SEARCH_USERS_SQL = <<~SQL
+      SELECT #{USER_COLUMNS.map { |column| "u.#{column}" }.join(', ')}
+      FROM users u
+      WHERE u.status = 'active' AND u.id <> $1 AND ($2 = '' OR (u.username, u.id) > ($2, $3))
+        AND (strpos(u.search_username, $4) > 0 OR strpos(u.search_display_name, $4) > 0)
+        AND NOT EXISTS (SELECT 1 FROM block_relations b WHERE (b.blocker_id = $1 AND b.blocked_id = u.id) OR (b.blocker_id = u.id AND b.blocked_id = $1))
+      ORDER BY u.username, u.id LIMIT 51
+    SQL
 
     def search_users_handler
       input = bind(SEARCH_USERS_REQUEST)
       raise APIError.new(400, 'invalid_relationship') unless valid_user_text?(input[:q], 1, 100)
       raise APIError.new(400, 'invalid_pagination') if input[:before_username].empty? != input[:before_id].empty?
 
-      viewer = current_session.user_id
-      users = db.select("SELECT #{USER_COLUMNS.join(', ')} FROM users WHERE status='active' AND id<>$1 AND ($2='' OR (username,id)>($2,$3)) ORDER BY username, id",
-                        viewer, input[:before_username], input[:before_id])
-      blocked = get_blocked_user_ids(db, viewer)
-      query = normalize_search_text(input[:q])
-      items = []
-      users.each do |row|
-        user = User.from_row(row)
-        next if !normalize_search_text(user.username).include?(query) && !normalize_search_text(user.display_name).include?(query)
-        next if blocked[user.id]
-
-        user.set_image_key
+      users = db.select(SEARCH_USERS_SQL, current_session.user_id, input[:before_username], input[:before_id], SearchText.normalize(input[:q]))
+      items = users.map do |row|
+        user = User.from_row(row).set_image_key
         user.bio = '' if user.account_type != 'certified_public'
-        items << relationship_user_response(user)
-        break if items.length == 51
+        relationship_user_response(user)
       end
       has_more = items.length > 50
       items = items.first(50) if has_more

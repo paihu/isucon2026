@@ -19,6 +19,14 @@ module Isureal
     end
   end
 
+  module SearchText
+    module_function
+
+    def normalize(value)
+      value.unicode_normalize(:nfc).downcase(:fold).unicode_normalize(:nfc)
+    end
+  end
+
   module UserValidation
     module_function
 
