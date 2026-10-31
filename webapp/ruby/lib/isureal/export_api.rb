@@ -12,7 +12,6 @@ module Isureal
         SELECT #{POST_COLUMNS}
         FROM posts p
         JOIN posting_windows w ON w.id = p.posting_window_id
-        JOIN image_objects i ON i.id = p.image_id
         WHERE p.author_id = $1 AND p.deleted_at IS NULL
         ORDER BY p.posted_at, p.id
       SQL
@@ -24,6 +23,8 @@ module Isureal
           ImageCache.write(row[:id], row[:data])
         end
       end
+      # image_objects との JOIN（パーティションを ID で総当たりして遅い）の代わりに、画像の無い投稿をここで除く。
+      posts = posts.select { |row| images[row[:image_id]] }
 
       archive = Zip::OutputStream.write_buffer(StringIO.new) do |writer|
         items = posts.each_with_index.map do |row, index|

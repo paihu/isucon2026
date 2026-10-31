@@ -5,7 +5,7 @@ module Isureal
     raise ArgumentError, "invalid server region: #{config.region}" unless UserValidation.valid_region?(config.region)
 
     db = Database.new(config.database_options, size: pool_size)
-    handler_context = HandlerContext.new(db:, config:, ip_bans: IPBanList.new)
+    handler_context = HandlerContext.new(db:, config:, ip_bans: IPBanList.new(db))
     ActionLog.new(App.new(handler_context:), min_level: config.log_level, output:)
   end
 
