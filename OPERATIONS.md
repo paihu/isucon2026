@@ -70,6 +70,7 @@ tools/compare-all.sh                  # 旧新の応答を突き合わせ（友�
 - ログイン・投稿作成・友達申請・関係操作・コメント・RealMoji を関数化（`004-functions.sql`）
 - セッション確認でユーザーも取得、viewer context を 1 SQL に、prepare をやめ `exec_params`、DB の TLS 無効、起動時に接続を張る（`preload_app! false`）
 - 画像: ディスクキャッシュ（`~/local/image-cache`、`ruby.sh` で消す）と初期データの事前キャッシュ（`~/local/image-cache-initial`、183 万件、`script/build_image_cache.rb`。消さない）
+- 作成した画像の本体は DB に入れない（`image_objects.data` は空）。作成したサーバーの `~/local/image-cache` に置き、`image_objects.origin` に `192.168.x.10:8080` を記録。他のサーバーはキャッシュに無いとき `GET /internal/images/:id`（8080 直、プライベートアドレスからのみ）で取り寄せる。`ruby.sh` 後は次の初期化まで、それ以前に作成された画像は取れない（ベンチは初期化から始まるので問題ない）
 - 通知は行として保存せず SSE で組み立てる。投稿期間の開始は advisory lock
 - IP BAN の一覧・開いている投稿期間はバックグラウンドで読み直す
 - 本文の一時ファイルを `/dev/shm` に、nginx は `proxy_request_buffering off`
