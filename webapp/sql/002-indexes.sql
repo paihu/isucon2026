@@ -1,0 +1,12 @@
+CREATE INDEX IF NOT EXISTS users_username ON users(username);
+CREATE INDEX IF NOT EXISTS login_sessions_token_hash ON login_sessions(token_hash);
+CREATE INDEX IF NOT EXISTS login_sessions_user_id ON login_sessions(user_id);
+CREATE INDEX IF NOT EXISTS administrator_sessions_token_hash ON administrator_sessions(token_hash);
+CREATE INDEX IF NOT EXISTS friendships_user_high_id ON friendships(user_high_id);
+CREATE INDEX IF NOT EXISTS follows_followee_id ON follows(followee_id);
+CREATE INDEX IF NOT EXISTS block_relations_blocked_id ON block_relations(blocked_id);
+CREATE INDEX IF NOT EXISTS friend_requests_pending_pair ON friend_requests(requester_id, recipient_id) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS friend_requests_pending_recipient ON friend_requests(recipient_id) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS posts_image_id ON posts(image_id);
+CREATE INDEX IF NOT EXISTS realmojis_image_id ON realmojis(image_id);
+CREATE INDEX IF NOT EXISTS notifications_user_id_created_at ON notifications(user_id, created_at);
