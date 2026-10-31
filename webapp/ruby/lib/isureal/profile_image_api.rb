@@ -16,7 +16,7 @@ module Isureal
       raise APIError.new(400, 'invalid_profile_image') if image.width > 512 || image.height > 512
 
       user_id = current_session.user_id
-      image_id = SecureRandom.uuid
+      image_id = SecureRandom.uuid_v7
       ImageCache.write(image_id, data)
       db.transaction do |tx|
         row = tx.get('SELECT profile_image_id FROM users WHERE id=$1 FOR NO KEY UPDATE', user_id)

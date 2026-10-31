@@ -49,7 +49,7 @@ module Isureal
 
       user = current_user
       # 他のサーバーがコミット直後に取り寄せても見つかるよう、DB より先にディスクに書く。
-      image_id = SecureRandom.uuid
+      image_id = SecureRandom.uuid_v7
       ImageCache.write(image_id, image_data)
       row = db.get('SELECT * FROM isureal_create_post($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)',
                    user.id, image_id, ''.b, SecureRandom.uuid, input[:caption], input[:visibility],
