@@ -20,11 +20,13 @@ module Isureal
     # 開いている投稿期間の全投稿は数百行になるので、種類ごとの条件で先に絞る。最終的な判定は matches_feed? が行う。
     # IN (友達一覧) や IN (フォロー先) にしないのは、友達・フォロー先の全期間の投稿から結合する計画になり秒単位で遅くなるため。
     FEED_FILTERS = {
+      # friends は開いている投稿期間の ID を配列で渡し、posts(author_id, posting_window_id) を友達 × 期間で引く
+      # （開いている期間の全投稿を友達か確かめるより 2〜7 倍速い）。配列にしないと全期間の投稿から結合する。
       'friends' => <<~SQL,
-        AND EXISTS (
-          SELECT 1 FROM friendships f
-          WHERE f.user_low_id = (least(p.author_id COLLATE "C", $1) COLLATE "default")
-            AND f.user_high_id = (greatest(p.author_id COLLATE "C", $1) COLLATE "default")
+        AND p.posting_window_id = ANY(ARRAY(SELECT id FROM posting_windows WHERE ended_at IS NULL))
+        AND p.author_id IN (
+          SELECT CASE WHEN user_low_id = $1 THEN user_high_id ELSE user_low_id END
+          FROM friendships WHERE user_low_id = $1 OR user_high_id = $1
         )
       SQL
       'public' => "AND p.visibility = 'public'",
