@@ -45,19 +45,15 @@ module Isureal
       end
 
       secret_key = SecureRandom.uuid
-      user = db.transaction do |tx|
-        # ユーザー名が一意である必要があります。
-        tx.exec('LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE')
-        if tx.get_value!('SELECT EXISTS(SELECT 1 FROM users WHERE username = $1)', input[:username])
-          raise APIError.new(409, 'username_taken')
-        end
+      # ユーザー名の一意性は users_username_key（002-indexes.sql）で保証する。
+      row = db.get(<<~SQL, SecureRandom.uuid, input[:username], Digest::SHA256.hexdigest(secret_key), input[:display_name], input[:region])
+        INSERT INTO users (id, username, secret_key_hash, display_name, region) VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (username) DO NOTHING
+        RETURNING #{USER_COLUMNS.join(', ')}
+      SQL
+      raise APIError.new(409, 'username_taken') if row.nil?
 
-        user_id = SecureRandom.uuid
-        tx.exec('INSERT INTO users (id, username, secret_key_hash, display_name, region) VALUES ($1, $2, $3, $4, $5)',
-                user_id, input[:username], Digest::SHA256.hexdigest(secret_key), input[:display_name], input[:region])
-        get_user(tx, user_id) or raise NoRowsError
-      end
-      json_response(201, { secretKey: secret_key, user: session_user_response(user) })
+      json_response(201, { secretKey: secret_key, user: session_user_response(User.from_row(row)) })
     end
 
     def login_handler

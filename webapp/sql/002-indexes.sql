@@ -1,4 +1,5 @@
-CREATE INDEX IF NOT EXISTS users_username ON users(username);
+DROP INDEX IF EXISTS users_username;
+CREATE UNIQUE INDEX IF NOT EXISTS users_username_key ON users(username);
 CREATE INDEX IF NOT EXISTS login_sessions_token_hash ON login_sessions(token_hash);
 CREATE INDEX IF NOT EXISTS login_sessions_user_id ON login_sessions(user_id);
 CREATE INDEX IF NOT EXISTS administrator_sessions_token_hash ON administrator_sessions(token_hash);

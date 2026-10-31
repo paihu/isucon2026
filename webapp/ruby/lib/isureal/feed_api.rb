@@ -22,10 +22,7 @@ module Isureal
       viewer = load_viewer_context(db, current_session.user_id, current_user)
       return json_response(200, { items: [], hasMore: false }) if viewer.nil?
 
-      following = {}
-      if input[:feed] == 'following'
-        db.select_values('SELECT followee_id FROM follows WHERE follower_id = $1', viewer.id).each { |id| following[id] = true }
-      end
+      following = viewer.following
       before_posted_at, before_id = ranked ? [nil, ''] : input.values_at(:before_posted_at, :before_id)
       posts = select_posts_with_author(db, <<~SQL, viewer.id, before_posted_at, before_id)
         AND p.author_id <> $1 AND w.ended_at IS NULL
@@ -60,34 +57,38 @@ module Isureal
       post.id < before_id
     end
 
+    RECOMMENDATION_SQL = <<~SQL
+      SELECT
+        ARRAY(
+          SELECT ARRAY[user_low_id, user_high_id] FROM friendships
+          WHERE user_low_id = ANY($1::text[]) OR user_high_id = ANY($1::text[])
+        )::text[] AS friendships,
+        ARRAY(
+          SELECT ARRAY[post_id, user_id] FROM (
+            SELECT r.post_id, r.reactor_id AS user_id FROM realmojis r
+            JOIN users u ON u.id = r.reactor_id AND u.status = 'active'
+            WHERE r.post_id = ANY($2::text[]) AND r.replaced_at IS NULL AND r.deleted_at IS NULL
+            UNION
+            SELECT c.post_id, c.author_id AS user_id FROM comments c
+            JOIN users u ON u.id = c.author_id AND u.status = 'active'
+            WHERE c.post_id = ANY($2::text[]) AND c.deleted_at IS NULL
+          ) e
+        )::text[] AS engagements
+    SQL
+
     def recommendation_scores(db, viewer, posts)
       return {} if posts.empty?
 
-      author_ids = posts.map(&:author_id)
-      post_ids = posts.map(&:id)
-
-      friendships = db.select(
-        "SELECT user_low_id, user_high_id FROM friendships WHERE user_low_id IN (#{in_placeholders(1, author_ids.length)}) OR user_high_id IN (#{in_placeholders(author_ids.length + 1, author_ids.length)})",
-        *author_ids, *author_ids
-      )
+      row = db.get!(RECOMMENDATION_SQL, posts.map(&:author_id), posts.map(&:id))
       connections = Hash.new(0)
-      friendships.each do |friendship|
-        connections[friendship[:user_low_id]] += viewer.mutual_friends[friendship[:user_high_id]]
-        connections[friendship[:user_high_id]] += viewer.mutual_friends[friendship[:user_low_id]]
+      row[:friendships].each do |low, high|
+        connections[low] += viewer.mutual_friends[high]
+        connections[high] += viewer.mutual_friends[low]
       end
 
-      engagements = db.select(<<~SQL, *post_ids, *post_ids)
-        SELECT r.post_id, r.reactor_id AS user_id FROM realmojis r
-        JOIN users u ON u.id = r.reactor_id AND u.status = 'active'
-        WHERE r.post_id IN (#{in_placeholders(1, post_ids.length)}) AND r.replaced_at IS NULL AND r.deleted_at IS NULL
-        UNION
-        SELECT c.post_id, c.author_id AS user_id FROM comments c
-        JOIN users u ON u.id = c.author_id AND u.status = 'active'
-        WHERE c.post_id IN (#{in_placeholders(post_ids.length + 1, post_ids.length)}) AND c.deleted_at IS NULL
-      SQL
       friend_engagements = Hash.new(0)
-      engagements.each do |engagement|
-        friend_engagements[engagement[:post_id]] += 1 if viewer.friends[engagement[:user_id]]
+      row[:engagements].each do |post_id, user_id|
+        friend_engagements[post_id] += 1 if viewer.friends[user_id]
       end
 
       posts.to_h do |post|

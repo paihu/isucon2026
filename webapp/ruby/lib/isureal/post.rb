@@ -33,7 +33,7 @@ module Isureal
   end
 
   ViewerContext = Struct.new(:user, :has_posted_today, :friends, :friends_of_friends, :mutual_friends, :blocked,
-                             keyword_init: true) do
+                             :following, keyword_init: true) do
     def id = user.id
 
     def region = user.region
@@ -86,31 +86,41 @@ module Isureal
       select_posts_with_author(db, 'AND p.id = $1', post_id).first
     end
 
-    def load_viewer_context(db, viewer_id, user = get_user(db, viewer_id))
-      return nil if user.nil?
-
-      viewer = ViewerContext.new(user:, friends: {}, friends_of_friends: {}, mutual_friends: Hash.new(0))
-      viewer.has_posted_today = db.get_value!(<<~SQL, viewer.id, viewer.region)
-        SELECT EXISTS(
+    VIEWER_CONTEXT_SQL = <<~SQL
+      WITH friends AS (
+        SELECT CASE WHEN user_low_id = $1 THEN user_high_id ELSE user_low_id END AS id
+        FROM friendships WHERE user_low_id = $1 OR user_high_id = $1
+      )
+      SELECT
+        EXISTS(
           SELECT 1 FROM posts p
           JOIN posting_windows posted ON posted.id = p.posting_window_id
           JOIN posting_windows current ON current.region = $2 AND current.ended_at IS NULL
                                       AND current.local_date = posted.local_date
           WHERE p.author_id = $1 AND p.deleted_at IS NULL
-        )
-      SQL
-      viewer.blocked = get_blocked_user_ids(db, viewer.id)
-      friends = get_friend_ids(db, viewer.id)
-      return viewer if friends.empty?
+        ) AS has_posted_today,
+        ARRAY(
+          SELECT CASE WHEN blocker_id = $1 THEN blocked_id ELSE blocker_id END
+          FROM block_relations WHERE blocker_id = $1 OR blocked_id = $1
+        )::text[] AS blocked,
+        ARRAY(SELECT id FROM friends)::text[] AS friends,
+        ARRAY(
+          SELECT ARRAY[f.user_low_id, f.user_high_id] FROM friendships f
+          WHERE f.user_low_id IN (SELECT id FROM friends) OR f.user_high_id IN (SELECT id FROM friends)
+        )::text[] AS friend_friendships,
+        ARRAY(SELECT followee_id FROM follows WHERE follower_id = $1)::text[] AS following
+    SQL
 
-      friends.each { |id| viewer.friends[id] = true }
-      friendships = db.select(
-        "SELECT user_low_id, user_high_id FROM friendships WHERE user_low_id IN (#{in_placeholders(1, friends.length)}) OR user_high_id IN (#{in_placeholders(friends.length + 1, friends.length)})",
-        *friends, *friends
-      )
-      friendships.each do |friendship|
-        low = friendship[:user_low_id]
-        high = friendship[:user_high_id]
+    def load_viewer_context(db, viewer_id, user = get_user(db, viewer_id))
+      return nil if user.nil?
+
+      viewer = ViewerContext.new(user:, friends: {}, friends_of_friends: {}, mutual_friends: Hash.new(0))
+      row = db.get!(VIEWER_CONTEXT_SQL, viewer.id, viewer.region)
+      viewer.has_posted_today = row[:has_posted_today]
+      viewer.blocked = row[:blocked].to_h { |id| [id, true] }
+      viewer.following = row[:following].to_h { |id| [id, true] }
+      row[:friends].each { |id| viewer.friends[id] = true }
+      row[:friend_friendships].each do |low, high|
         if viewer.friends[low]
           viewer.friends_of_friends[high] = true
           viewer.mutual_friends[high] += 1 if high != viewer.id

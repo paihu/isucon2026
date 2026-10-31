@@ -39,6 +39,7 @@ module Isureal
 
   class Connection
     STATEMENT_CACHE_CAPACITY = 512
+    ARRAY_ENCODER = PG::TextEncoder::Array.new
     TYPE_REGISTRY = PG::BasicTypeRegistry.new.register_default_types
                                          .register_type(0, 'numeric', PG::TextEncoder::Float, PG::TextDecoder::Float)
 
@@ -108,6 +109,7 @@ module Isureal
       when String then value.encoding == Encoding::BINARY ? { value:, format: 1 } : value
       when Time then value.getutc.strftime('%Y-%m-%d %H:%M:%S.%6N+00')
       when Date then value.iso8601
+      when Array then ARRAY_ENCODER.encode(value)
       else value.to_s
       end
     end
