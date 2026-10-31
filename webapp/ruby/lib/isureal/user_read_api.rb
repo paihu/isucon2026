@@ -26,7 +26,7 @@ module Isureal
       raise APIError.new(400, 'invalid_relationship') unless valid_user_text?(input[:q], 1, 100)
       raise APIError.new(400, 'invalid_pagination') if input[:before_username].empty? != input[:before_id].empty?
 
-      users = db.select(SEARCH_USERS_SQL, current_session.user_id, input[:before_username], input[:before_id], SearchText.normalize(input[:q]))
+      users, = query_with_session([SEARCH_USERS_SQL, input[:before_username], input[:before_id], SearchText.normalize(input[:q])])
       items = users.map do |row|
         user = User.from_row(row).set_image_key
         user.bio = '' if user.account_type != 'certified_public'

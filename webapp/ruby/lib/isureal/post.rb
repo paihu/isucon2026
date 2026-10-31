@@ -71,15 +71,22 @@ module Isureal
       row && Post.from_row(row)
     end
 
-    def select_posts_with_author(db, conditions, *args)
-      rows = db.select(<<~SQL, *args)
+    def posts_with_author_sql(conditions)
+      <<~SQL
         SELECT #{POST_COLUMNS}, #{user_columns_as('u', 'author')}
         FROM posts p
         JOIN posting_windows w ON w.id = p.posting_window_id
         JOIN users u ON u.id = p.author_id AND u.status = 'active'
         WHERE p.deleted_at IS NULL #{conditions}
       SQL
+    end
+
+    def posts_from_rows(rows)
       rows.map { |row| Post.from_row(row).tap { |post| post.author = User.from_row(row, 'author').set_image_key } }
+    end
+
+    def select_posts_with_author(db, conditions, *args)
+      posts_from_rows(db.select(posts_with_author_sql(conditions), *args))
     end
 
     def get_post_with_author(db, post_id)
@@ -95,7 +102,7 @@ module Isureal
         EXISTS(
           SELECT 1 FROM posts p
           JOIN posting_windows posted ON posted.id = p.posting_window_id
-          JOIN posting_windows current ON current.region = $2 AND current.ended_at IS NULL
+          JOIN posting_windows current ON current.region = (SELECT region FROM users WHERE id = $1) AND current.ended_at IS NULL
                                       AND current.local_date = posted.local_date
           WHERE p.author_id = $1 AND p.deleted_at IS NULL
         ) AS has_posted_today,
@@ -115,8 +122,11 @@ module Isureal
     def load_viewer_context(db, viewer_id, user = get_user(db, viewer_id))
       return nil if user.nil?
 
+      viewer_context(user, db.get!(VIEWER_CONTEXT_SQL, user.id))
+    end
+
+    def viewer_context(user, row)
       viewer = ViewerContext.new(user:, friends: {}, friends_of_friends: {}, mutual_friends: Hash.new(0))
-      row = db.get!(VIEWER_CONTEXT_SQL, viewer.id, viewer.region)
       viewer.has_posted_today = row[:has_posted_today]
       viewer.blocked = row[:blocked].to_h { |id| [id, true] }
       viewer.following = row[:following].to_h { |id| [id, true] }

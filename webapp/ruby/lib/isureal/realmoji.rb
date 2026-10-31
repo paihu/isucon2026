@@ -10,13 +10,18 @@ module Isureal
   end
 
   class App
-    def select_current_realmojis(db, conditions, *args)
-      rows = db.select(<<~SQL, *args)
+    def current_realmojis_sql(conditions)
+      <<~SQL
         SELECT r.id, r.post_id, r.reactor_id, r.image_id, r.reaction_type, r.created_at, r.replaced_at, r.deleted_at,
                #{user_columns_as('u', 'reactor')}
         FROM realmojis r JOIN users u ON u.id = r.reactor_id AND u.status = 'active'
         WHERE r.replaced_at IS NULL AND r.deleted_at IS NULL #{conditions}
       SQL
+    end
+
+    def select_current_realmojis(db, conditions, *args) = realmojis_from_rows(db.select(current_realmojis_sql(conditions), *args))
+
+    def realmojis_from_rows(rows)
       rows.map { |row| RealMoji.from_row(row).tap { |reaction| reaction.reactor = User.from_row(row, 'reactor').set_image_key } }
     end
   end

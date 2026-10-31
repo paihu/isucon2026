@@ -3,7 +3,7 @@
 module Isureal
   class App
     def get_current_posting_window_handler
-      state = db.get(<<~SQL, current_session.user_id)
+      rows, = query_with_session([<<~SQL])
         SELECT w.id, w.region, w.local_date, w.starts_at, w.on_time_deadline, w.ended_at,
                count(p.id) FILTER (WHERE p.deleted_at IS NULL) AS active,
                count(p.id) FILTER (WHERE p.deleted_at IS NOT NULL) AS deleted
@@ -13,6 +13,7 @@ module Isureal
         WHERE u.id = $1
         GROUP BY w.id
       SQL
+      state = rows.first
       return json_response(200, { window: nil, hasPosted: false, canPost: false, deletionCount: 0 }) if state.nil?
 
       json_response(200, {

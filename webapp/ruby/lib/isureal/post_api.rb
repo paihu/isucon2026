@@ -77,31 +77,37 @@ module Isureal
       }
     end
 
-    def get_my_current_post_handler
-      user_id = current_session.user_id
-      post_id = db.get_value(<<~SQL, user_id)
+    MY_CURRENT_POST_SQL = <<~SQL
+      SELECT #{POST_COLUMNS}
+      FROM posts p JOIN posting_windows w ON w.id = p.posting_window_id
+      WHERE p.deleted_at IS NULL AND p.id = (
         SELECT p.id FROM posts p
         JOIN posting_windows w ON w.id = p.posting_window_id
         JOIN users u ON u.id = p.author_id
         JOIN posting_windows current ON current.region = u.region AND current.ended_at IS NULL
                                    AND current.local_date = w.local_date
         WHERE p.author_id = $1 AND p.deleted_at IS NULL
-      SQL
-      raise APIError.new(404, 'post_not_found') if post_id.nil?
+        LIMIT 1
+      )
+    SQL
 
-      post = get_post(db, post_id)
-      raise APIError.new(404, 'post_not_found') if post.nil?
+    def get_my_current_post_handler
+      rows, = query_with_session([MY_CURRENT_POST_SQL])
+      raise APIError.new(404, 'post_not_found') if rows.ntuples.zero?
+
+      post = Post.from_row(rows.first)
 
       json_response(200, post_response(post, current_user))
     end
 
     def get_post_handler
       input = bind(GET_POST_REQUEST)
-      post = get_post_with_author(db, input[:post_id])
+      post_rows, viewer_rows = query_with_session([posts_with_author_sql('AND p.id = $2'), input[:post_id]], [VIEWER_CONTEXT_SQL])
+      post = posts_from_rows(post_rows).first
       raise APIError.new(404, 'post_not_found') if post.nil?
 
-      viewer = load_viewer_context(db, current_session.user_id, current_user)
-      raise APIError.new(404, 'post_not_found') if viewer.nil? || !viewer.can_view?(post)
+      viewer = viewer_context(current_user, viewer_rows.first)
+      raise APIError.new(404, 'post_not_found') unless viewer.can_view?(post)
 
       json_response(200, post_response(post, post.author))
     end

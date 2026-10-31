@@ -23,8 +23,7 @@ module Isureal
       query = RELATIONSHIP_QUERIES[input[:kind]]
       raise APIError.new(400, 'invalid_relationship') if query.nil?
 
-      actor = current_session.user_id
-      records = db.select(<<~SQL, actor, input[:before_updated_at], input[:before_id])
+      records, = query_with_session([<<~SQL, input[:before_updated_at], input[:before_id]])
         SELECT relations.id, relations.updated_at, #{user_columns_as('u', 'user')}
         FROM (#{query}) relations
         JOIN users u ON u.status = 'active'
@@ -32,6 +31,7 @@ module Isureal
         WHERE ($2::timestamptz IS NULL OR (relations.updated_at, relations.id) < ($2, $3))
         ORDER BY relations.updated_at DESC, relations.id DESC LIMIT 51
       SQL
+      records = records.to_a
       items = records.map do |record|
         user = User.from_row(record, 'user').set_image_key
         user.bio = '' if user.account_type != 'certified_public' && input[:kind] != 'friends'

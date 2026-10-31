@@ -10,12 +10,17 @@ module Isureal
   end
 
   class App
-    def select_comments_with_author(db, conditions, *args)
-      rows = db.select(<<~SQL, *args)
+    def comments_with_author_sql(conditions)
+      <<~SQL
         SELECT c.id, c.post_id, c.author_id, c.body, c.created_at, c.deleted_at, #{user_columns_as('u', 'author')}
         FROM comments c JOIN users u ON u.id = c.author_id AND u.status = 'active'
         WHERE c.deleted_at IS NULL #{conditions}
       SQL
+    end
+
+    def select_comments_with_author(db, conditions, *args) = comments_from_rows(db.select(comments_with_author_sql(conditions), *args))
+
+    def comments_from_rows(rows)
       rows.map { |row| Comment.from_row(row).tap { |comment| comment.author = User.from_row(row, 'author').set_image_key } }
     end
 

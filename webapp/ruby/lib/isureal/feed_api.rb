@@ -11,6 +11,12 @@ module Isureal
       before_id: { query: 'beforeId' },
     }.freeze
 
+    FEED_CONDITIONS = <<~SQL
+      AND p.author_id <> $1 AND w.ended_at IS NULL
+      AND ($2::timestamptz IS NULL OR (p.posted_at, p.id) < ($2, $3))
+      ORDER BY p.posted_at DESC, p.id DESC
+    SQL
+
     def get_feed_handler
       input = bind(GET_FEED_REQUEST)
       raise APIError.new(400, 'invalid_post') unless FEEDS.include?(input[:feed])
@@ -19,16 +25,11 @@ module Isureal
       ranked = input[:feed] == 'friends-of-friends'
       raise APIError.new(400, 'invalid_pagination') if ranked && input[:before_score].nil? != input[:before_id].empty?
 
-      viewer = load_viewer_context(db, current_session.user_id, current_user)
-      return json_response(200, { items: [], hasMore: false }) if viewer.nil?
-
-      following = viewer.following
       before_posted_at, before_id = ranked ? [nil, ''] : input.values_at(:before_posted_at, :before_id)
-      posts = select_posts_with_author(db, <<~SQL, viewer.id, before_posted_at, before_id)
-        AND p.author_id <> $1 AND w.ended_at IS NULL
-        AND ($2::timestamptz IS NULL OR (p.posted_at, p.id) < ($2, $3))
-        ORDER BY p.posted_at DESC, p.id DESC
-      SQL
+      viewer_rows, post_rows = query_with_session([VIEWER_CONTEXT_SQL], [posts_with_author_sql(FEED_CONDITIONS), before_posted_at, before_id])
+      viewer = viewer_context(current_user, viewer_rows.first)
+      following = viewer.following
+      posts = posts_from_rows(post_rows)
       candidates = posts.select { |post| viewer.can_view?(post) && matches_feed?(viewer, following, post, input[:feed]) }
       scores = {}
       if ranked

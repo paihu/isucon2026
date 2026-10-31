@@ -17,7 +17,7 @@ module Isureal
     post('/api/auth/register') { register_handler }
     post('/api/auth/login') { login_handler }
     post('/api/auth/logout') { session_middleware(true) { logout_handler } }
-    get('/api/users') { session_middleware(true) { region_middleware { search_users_handler } } }
+    get('/api/users') { deferred_session_middleware { search_users_handler } }
     get('/api/users/:userId') { session_middleware(true) { region_middleware { get_user_handler } } }
     get('/api/me/export') { session_middleware(true) { region_middleware { export_posts_handler } } }
     get('/api/me') { session_middleware(true) { region_middleware { get_me_handler } } }
@@ -26,25 +26,25 @@ module Isureal
     delete('/api/me/profile-image') { session_middleware(true) { delete_profile_image_handler } }
     post('/api/me/account-deletion') { session_middleware(true) { region_middleware { delete_account_handler } } }
     post('/api/posts') { session_middleware(true) { region_middleware { create_post_handler } } }
-    get('/api/posting-window/current') { session_middleware(true) { region_middleware { get_current_posting_window_handler } } }
-    get('/api/posts/me/current') { session_middleware(true) { region_middleware { get_my_current_post_handler } } }
-    get('/api/posts/:postId') { session_middleware(true) { region_middleware { get_post_handler } } }
+    get('/api/posting-window/current') { deferred_session_middleware { get_current_posting_window_handler } }
+    get('/api/posts/me/current') { deferred_session_middleware { get_my_current_post_handler } }
+    get('/api/posts/:postId') { deferred_session_middleware { get_post_handler } }
     patch('/api/posts/:postId') { session_middleware(true) { region_middleware { update_post_handler } } }
     delete('/api/posts/:postId') { session_middleware(true) { region_middleware { delete_post_handler } } }
-    get('/api/feeds/:feed') { session_middleware(true) { region_middleware { get_feed_handler } } }
-    get('/api/memories') { session_middleware(true) { region_middleware { get_memories_handler } } }
-    get('/api/memories/:date') { session_middleware(true) { region_middleware { get_memories_by_date_handler } } }
+    get('/api/feeds/:feed') { deferred_session_middleware { get_feed_handler } }
+    get('/api/memories') { deferred_session_middleware { get_memories_handler } }
+    get('/api/memories/:date') { deferred_session_middleware { get_memories_by_date_handler } }
     post('/api/posts/:postId/comments') { session_middleware(true) { region_middleware { create_comment_handler } } }
-    get('/api/posts/:postId/comments') { session_middleware(true) { region_middleware { get_comments_handler } } }
+    get('/api/posts/:postId/comments') { deferred_session_middleware { get_comments_handler } }
     delete('/api/comments/:commentId') { session_middleware(true) { region_middleware { delete_comment_handler } } }
     post('/api/posts/:postId/realmojis') { session_middleware(true) { region_middleware { replace_real_moji_handler } } }
-    get('/api/posts/:postId/realmojis') { session_middleware(true) { region_middleware { get_real_mojis_handler } } }
+    get('/api/posts/:postId/realmojis') { deferred_session_middleware { get_real_mojis_handler } }
     delete('/api/realmojis/:realMojiId') { session_middleware(true) { region_middleware { delete_real_moji_handler } } }
     get('/api/images/:imageId') { get_image_handler }
     get('/api/notifications') { session_middleware(true) { region_middleware { get_notifications_handler } } }
     post('/api/friend-requests') { session_middleware(true) { region_middleware { create_friend_request_handler } } }
     post('/api/friend-requests/:requestId/:action') { session_middleware(true) { region_middleware { transition_friend_request_handler } } }
-    get('/api/relationships/:kind') { session_middleware(true) { region_middleware { get_relationships_handler } } }
+    get('/api/relationships/:kind') { deferred_session_middleware { get_relationships_handler } }
     delete('/api/friendships/:userId') { session_middleware(true) { region_middleware { delete_friendship_handler } } }
     put('/api/follows/:userId') { session_middleware(true) { region_middleware { follow_handler } } }
     delete('/api/follows/:userId') { session_middleware(true) { region_middleware { unfollow_handler } } }

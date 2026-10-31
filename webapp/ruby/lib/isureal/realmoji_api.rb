@@ -53,10 +53,14 @@ module Isureal
     def get_real_mojis_handler
       input = bind(GET_REAL_MOJIS_REQUEST)
       raise APIError.new(400, 'invalid_pagination') if input[:before_created_at].nil? != input[:before_id].empty?
-      raise APIError.new(403, 'interaction_forbidden') unless can_interact?(input[:post_id], 'view')
+      allowed, rows = query_with_session(
+        ['SELECT isureal_can_interact($1, $2, $3)', input[:post_id], 'view'],
+        [current_realmojis_sql('AND r.post_id=$2 AND ($3::timestamptz IS NULL OR (r.created_at,r.id)<($3,$4)) ORDER BY r.created_at DESC,r.id DESC LIMIT 51'),
+         input[:post_id], input[:before_created_at], input[:before_id]],
+      )
+      raise APIError.new(403, 'interaction_forbidden') unless allowed.getvalue(0, 0)
 
-      reactions = select_current_realmojis(db, 'AND r.post_id=$1 AND ($2::timestamptz IS NULL OR (r.created_at,r.id)<($2,$3)) ORDER BY r.created_at DESC,r.id DESC LIMIT 51',
-                                           input[:post_id], input[:before_created_at], input[:before_id])
+      reactions = realmojis_from_rows(rows)
       items = reactions.map { |reaction| realmoji_response(reaction, reaction.reactor) }
       has_more = items.length > 50
       items = items.first(50) if has_more

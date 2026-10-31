@@ -53,6 +53,8 @@ module Isureal
     def exec(...) = with { |conn| conn.exec(...) }
 
     def transaction(&) = with { |conn| conn.transaction(&) }
+
+    def pipeline(queries) = with { |conn| conn.pipeline(queries) }
   end
 
   class Connection
@@ -92,6 +94,26 @@ module Isureal
       @raw.transaction { yield self }
     end
 
+    # 互いに依存しない読み取りを 1 往復で送る（libpq の pipeline mode）。queries は [sql, params] の配列。
+    def pipeline(queries)
+      results = []
+      @raw.enter_pipeline_mode
+      begin
+        queries.each { |sql, params| @raw.send_query_params(sql, params.map { |param| encode(param) }) }
+        @raw.pipeline_sync
+        loop do
+          result = @raw.get_result
+          next if result.nil?
+          break if result.result_status == PG::PGRES_PIPELINE_SYNC
+
+          results << result
+        end
+      ensure
+        @raw.exit_pipeline_mode
+      end
+      results.each(&:check)
+    end
+
     def close
       @raw.close
     rescue PG::Error
@@ -112,6 +134,7 @@ module Isureal
       when Time then value.getutc.strftime('%Y-%m-%d %H:%M:%S.%6N+00')
       when Date then value.iso8601
       when Array then ARRAY_ENCODER.encode(value)
+      when Hash then value
       else value.to_s
       end
     end
