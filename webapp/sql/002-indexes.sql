@@ -6,6 +6,9 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS search_display_name text;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE INDEX IF NOT EXISTS users_search_username_trgm ON users USING gin (search_username gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS users_search_display_name_trgm ON users USING gin (search_display_name gin_trgm_ops);
+-- 保留リストを使わない。ベンチ中は users の登録・更新が多く、保留リスト（最大 4MB）を検索のたびになめて 20ms かかっていた。
+ALTER INDEX users_search_username_trgm SET (fastupdate = off);
+ALTER INDEX users_search_display_name_trgm SET (fastupdate = off);
 -- friends フィードで友達 × 開いている投稿期間の投稿を引く（FEED_FILTERS）。
 CREATE INDEX IF NOT EXISTS posts_author_id_posting_window_id ON posts(author_id, posting_window_id);
 CREATE INDEX IF NOT EXISTS login_sessions_token_hash ON login_sessions(token_hash);
