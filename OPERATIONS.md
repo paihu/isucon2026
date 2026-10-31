@@ -76,12 +76,14 @@ tools/compare-all.sh                  # 旧新の応答を突き合わせ（友�
 - ログレベル既定 info（`isureal-guard` が info のアクションログで BAN するので error にしない）
 - 2MB 以上の `PUT /api/me/profile-image` の本文は nginx がアプリに渡さない（空の本文として渡し、アプリは不正画像と同じ 400 と abuse ログを返す）。不正アップロードは平均 24MB、正規は最大 26KB
 - 投稿・RealMoji・プロフィール画像の作成時に自サーバーの画像キャッシュへ書く
+- Puma: europe/america はスレッド 32・DB 接続 31（worker ごと）、asia は 16・15（`config/puma.rb` で `ISUREAL_REGION` から決定）。asia2 の `max_connections = 300`（アプリの接続は合計約 186）
 - asia2 の PostgreSQL は `synchronous_commit = off`（ALTER SYSTEM。OS ごと落ちると直前 1 秒弱のコミットを失いうるが、正常な再起動では失わない）
 
 ## 再起動への耐性（2026-10-31 にローカルで確認）
 
 - アプリが DB より先に起動しても、worker の起動失敗を Puma が繰り返し、DB が上がれば約 5 秒で自動復旧する（失敗中は CPU とログを消費する）。
 - アプリ稼働中に DB だけ再起動すると、直後の数秒は 500 になるが、IP BAN・投稿期間を読み直すバックグラウンドスレッドが切れた接続を捨てるので約 2 秒で回復する。
+- PostgreSQL を再起動したら `ruby.sh` でアプリも再起動する（起動時に張る接続が切れ、張り直しは使われた分だけになるため）。
 - 自動起動: 3 台は isureal-ruby / nginx / isureal-guard が enabled、asia2 は isureal-ruby / isureal-guard / postgresql が enabled（nginx は使わない）。
 - 再起動で消えるもの: /dev/shm の一時ファイル、vmstat/pidstat の記録（`tools/monitor.sh start` で再開）。画像キャッシュ（`~/local/image-cache*`）は残る。
 
