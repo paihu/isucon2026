@@ -15,7 +15,21 @@ module Isureal
       [secret_key_hash].pack('H*')
     end
 
+    # ponytail: 上限到達で全消去する素朴なメモ。ヒット率が問題になれば LRU にする。
+    SIGNATURE_MEMO = {}
+    SIGNATURE_MEMO_LIMIT = 50_000
+
     def signature(key, image_id, exp)
+      memo_key = [key, image_id, exp]
+      if (memoized = SIGNATURE_MEMO[memo_key])
+        return memoized
+      end
+
+      SIGNATURE_MEMO.clear if SIGNATURE_MEMO.size >= SIGNATURE_MEMO_LIMIT
+      SIGNATURE_MEMO[memo_key] = compute_signature(key, image_id, exp).freeze
+    end
+
+    def compute_signature(key, image_id, exp)
       value = "#{exp}:#{image_id}".b
       mac = OpenSSL::HMAC.new(key, 'SHA256')
       IMAGE_SIGNATURE_ITERATIONS.times { value = mac.reset.update(value).digest }

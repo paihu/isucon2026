@@ -10,7 +10,8 @@ module Isureal
         db_user: env_or_default('ISUREAL_DB_USER', 'isureal'),
         db_password: env_or_default('ISUREAL_DB_PASSWORD', 'isureal'),
         db_name: env_or_default('ISUREAL_DB_NAME', 'isureal'),
-        log_level: env_or_default('ISUREAL_LOG_LEVEL', 'debug'),
+        # error にしないのは、isureal-guard が info のアクションログ（ログイン失敗等）で BAN するため。
+        log_level: env_or_default('ISUREAL_LOG_LEVEL', 'info'),
       )
     end
 
