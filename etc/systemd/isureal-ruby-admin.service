@@ -1,0 +1,18 @@
+# 管理者 API（投稿期間の開始）専用の Puma。asia1 の CPU が飽和しても、ベンチの日の進行を止めないため。
+# nginx の isureal_admin が送り、落ちているときは通常の Puma（8080）に流れる。
+[Unit]
+Description=isureal-ruby-admin
+After=network-online.target
+Wants=network-online.target
+[Service]
+User=isucon
+Group=isucon
+WorkingDirectory=/home/isucon/webapp/ruby
+EnvironmentFile=/home/isucon/env.sh
+Environment=ISUREAL_PORT=8082 ISUREAL_WORKERS=0 ISUREAL_THREADS=4
+Nice=-5
+ExecStart=/home/isucon/local/ruby/bin/bundle exec puma -C config/puma.rb
+Restart=always
+RestartSec=2
+[Install]
+WantedBy=multi-user.target

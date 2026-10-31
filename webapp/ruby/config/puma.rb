@@ -2,7 +2,7 @@
 
 RubyVM::YJIT.enable if defined?(RubyVM::YJIT.enable)
 
-port 8080
+port Integer(ENV.fetch('ISUREAL_PORT', '8080'))
 environment 'production'
 workers Integer(ENV.fetch('ISUREAL_WORKERS', '2'))
 # europe/america は DB 往復（約 100ms）の待ちが大半で CPU が空いているので、スレッドと DB 接続を多めにする。
