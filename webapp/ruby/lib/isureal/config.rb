@@ -21,7 +21,10 @@ module Isureal
     end
 
     def database_options
-      { host: db_host, port: db_port, user: db_user, password: db_password, dbname: db_name }
+      # TLS を使わないのは、ハンドシェイクで新規接続ごとに europe/america で約 300ms 増えるため（通信は VPC 内）。
+      # keepalives は、起動時に張ったまま使われない接続を経路上で切られないようにするため。
+      { host: db_host, port: db_port, user: db_user, password: db_password, dbname: db_name,
+        sslmode: 'disable', keepalives: 1, keepalives_idle: 30, keepalives_interval: 10, keepalives_count: 3 }
     end
   end
 end

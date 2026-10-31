@@ -9,6 +9,24 @@ module Isureal
     def initialize(options, size:, timeout: 60)
       PG.connect(**options).close
       @pool = ConnectionPool.new(size:, timeout:) { Connection.new(PG.connect(**options)) }
+      prewarm(size)
+    end
+
+    # europe/america では新規接続に数往復かかるので、起動時に全接続を張っておく。
+    def prewarm(size)
+      acquired = Queue.new
+      release = Queue.new
+      threads = Array.new(size) do
+        Thread.new do
+          @pool.with do
+            acquired << true
+            release.pop
+          end
+        end
+      end
+      size.times { acquired.pop }
+      size.times { release << true }
+      threads.each(&:join)
     end
 
     def with
@@ -38,7 +56,6 @@ module Isureal
   end
 
   class Connection
-    STATEMENT_CACHE_CAPACITY = 512
     ARRAY_ENCODER = PG::TextEncoder::Array.new
     TYPE_REGISTRY = PG::BasicTypeRegistry.new.register_default_types
                                          .register_type(0, 'numeric', PG::TextEncoder::Float, PG::TextDecoder::Float)
@@ -47,8 +64,6 @@ module Isureal
       @raw = raw
       @raw.type_map_for_results = PG::BasicTypeMapForResults.new(@raw, registry: TYPE_REGISTRY)
       @raw.field_name_type = :symbol
-      @statements = {}
-      @statement_count = 0
     end
 
     def get(sql, *params) = query(sql, params).first
@@ -85,22 +100,9 @@ module Isureal
 
     private
 
+    # prepare しないのは、接続 × SQL ごとの初回 prepare が europe/america で 1 往復（約 100ms）かかるため。
     def query(sql, params)
-      @raw.exec_prepared(statement(sql), params.map { |param| encode(param) })
-    end
-
-    def statement(sql)
-      if (name = @statements.delete(sql))
-        return @statements[sql] = name
-      end
-
-      if @statements.size >= STATEMENT_CACHE_CAPACITY
-        _, oldest = @statements.shift
-        @raw.exec("DEALLOCATE #{oldest}")
-      end
-      name = "isureal_#{@statement_count += 1}"
-      @raw.prepare(name, sql)
-      @statements[sql] = name
+      @raw.exec_params(sql, params.map { |param| encode(param) })
     end
 
     def encode(value)
