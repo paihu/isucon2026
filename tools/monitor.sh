@@ -1,11 +1,11 @@
 #!/bin/bash
-# ベンチ計測。asia1（app）と asia2（DB+app）で vmstat / pidstat を記録し、pg_stat_statements を集計する。
+# ベンチ計測。asia1・asia2（DB+app）・europe1・america1 で vmstat / pidstat を記録し、pg_stat_statements を集計する。
 # usage:
 #   tools/monitor.sh start              # 30 分間の記録を開始し pg_stat_statements をリセット（デプロイ後・ベンチ前に実行）
 #   tools/monitor.sh report FROM TO     # ベンチ区間（HH:MM:SS、UTC）の CPU・I/O・DB 上位クエリを表示
 set -eu
 cd "$(dirname "$0")"
-hosts=(35.74.177.247 175.41.248.35)
+hosts=(35.74.177.247 175.41.248.35 13.113.23.51 13.112.188.233)
 db=175.41.248.35
 
 case "${1:-}" in
