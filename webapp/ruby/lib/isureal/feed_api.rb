@@ -29,6 +29,20 @@ module Isureal
           FROM friendships WHERE user_low_id = $1 OR user_high_id = $1
         )
       SQL
+      # 友達の友達も同じく期間 × 投稿者で引く。返す行が開いている期間の全投稿（数百行）から数行になる。
+      # 友達が多い（上位 1%）と DB では少し遅くなる（3.0ms → 6.4ms）が、多くは速くなり、Ruby の行変換と転送が減る。
+      'friends-of-friends' => <<~SQL,
+        AND p.posting_window_id = ANY(ARRAY(SELECT id FROM posting_windows WHERE ended_at IS NULL))
+        AND p.author_id IN (
+          WITH fr AS (
+            SELECT CASE WHEN user_low_id = $1 THEN user_high_id ELSE user_low_id END AS id
+            FROM friendships WHERE user_low_id = $1 OR user_high_id = $1
+          )
+          SELECT f.user_high_id FROM fr JOIN friendships f ON f.user_low_id = fr.id
+          UNION ALL
+          SELECT f.user_low_id FROM fr JOIN friendships f ON f.user_high_id = fr.id
+        )
+      SQL
       'public' => "AND p.visibility = 'public'",
       'following' => 'AND EXISTS (SELECT 1 FROM follows fo WHERE fo.follower_id = $1 AND fo.followee_id = p.author_id)',
     }.freeze
