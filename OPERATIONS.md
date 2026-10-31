@@ -6,10 +6,10 @@
 
 | サーバ | 公開 IP | 内部 IP | 役割 |
 |---|---|---|---|
-| asia1 | 35.74.177.247 | 192.168.1.10 | nginx + Ruby アプリ。asia の入口。asia1:asia2 = 5:1 で振り分け（`etc/nginx/upstream/asia.conf`） |
+| asia1 | 35.74.177.247 | 192.168.1.10 | nginx + Ruby アプリ。asia の入口。asia1:asia2 = 3:1 で振り分け（`etc/nginx/upstream/asia.conf`） |
 | europe1 | 13.113.23.51 | 192.168.2.10 | nginx + Ruby アプリ |
 | america1 | 13.112.188.233 | 192.168.3.10 | nginx + Ruby アプリ |
-| asia2 | 175.41.248.35 | 192.168.4.10 | PostgreSQL 16 + Ruby アプリ（asia1 の nginx から 1/6。nginx は使わない） |
+| asia2 | 175.41.248.35 | 192.168.4.10 | PostgreSQL 16 + Ruby アプリ（asia1 の nginx から 1/4。nginx は使わない） |
 
 - ssh は `ssh isucon@<公開 IP>`。sudo 可。
 - europe/america から asia2 の DB までは 1 往復約 100ms。**応答時間はほぼ DB 往復回数で決まる。**
@@ -71,6 +71,7 @@ tools/compare-all.sh                  # 旧新の応答を突き合わせ（友�
 - セッション確認でユーザーも取得、viewer context を 1 SQL に、prepare をやめ `exec_params`、DB の TLS 無効、起動時に接続を張る（`preload_app! false`）
 - 画像: ディスクキャッシュ（`~/local/image-cache`、`ruby.sh` で消す）と初期データの事前キャッシュ（`~/local/image-cache-initial`、183 万件、`script/build_image_cache.rb`。消さない）
 - 作成した画像の本体は DB に入れない（`image_objects.data` は空）。作成したサーバーの `~/local/image-cache` に置き、`image_objects.origin` に `192.168.x.10:8080` を記録。他のサーバーはキャッシュに無いとき `GET /internal/images/:id`（8080 直、プライベートアドレスからのみ）で取り寄せる。`ruby.sh` 後は次の初期化まで、それ以前に作成された画像は取れない（ベンチは初期化から始まるので問題ない）
+- `GET /api/images` の本体は nginx が返す。アプリは署名・期限・状態を確かめ、ディスクにあれば `X-Accel-Redirect: /_image_files/{initial,runtime}/<id>` だけ返す（`ImageCache.nginx_uri`）。nginx を持たない asia2 は本体を自分で返す（`/etc/nginx/conf.d/isureal-upstream.conf` の有無で判定）。テストで画像 URL を JSON から取るときは `\u0026` のエスケープに注意
 - 画像を作る POST（投稿・RealMoji・プロフィール画像）は nginx で各ホストのローカルのアプリに送る。asia2 は DB と 2 コアを取り合うため、asia2 が送信元だと取り寄せが数〜十数秒かかり、待つ側（asia1）のスレッドが詰まって投稿期間の開始まで遅れた（50396/51037 の回）
 - 通知は行として保存せず SSE で組み立てる。投稿期間の開始は advisory lock
 - IP BAN の一覧・開いている投稿期間はバックグラウンドで読み直す
