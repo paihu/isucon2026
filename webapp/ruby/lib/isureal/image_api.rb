@@ -105,7 +105,14 @@ module Isureal
 
       path = File.join(DIR, id)
       tmp = "#{path}.#{Process.pid}.#{Thread.current.object_id}.tmp"
-      File.write(tmp, "#{now + TTL}\t#{secret_key_hash}\t#{media_type}")
+      data = "#{now + TTL}\t#{secret_key_hash}\t#{media_type}"
+      begin
+        File.write(tmp, data)
+      rescue Errno::ENOENT
+        # systemd-logind（RemoveIPC=yes）は isucon の SSH セッションが全部閉じると /dev/shm の持ち物を消すので、実行中でも作り直す。
+        FileUtils.mkdir_p(DIR)
+        File.write(tmp, data)
+      end
       File.rename(tmp, path)
     end
 

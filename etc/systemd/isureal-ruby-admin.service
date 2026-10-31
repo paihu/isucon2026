@@ -13,6 +13,7 @@ Environment=ISUREAL_PORT=8082 ISUREAL_WORKERS=0 ISUREAL_THREADS=4
 Nice=-5
 ExecStart=/home/isucon/local/ruby/bin/bundle exec puma -C config/puma.rb
 Restart=always
+LimitNOFILE=65536
 RestartSec=2
 [Install]
 WantedBy=multi-user.target
