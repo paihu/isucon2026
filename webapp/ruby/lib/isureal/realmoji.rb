@@ -10,11 +10,6 @@ module Isureal
   end
 
   class App
-    def get_real_moji(db, id)
-      row = db.get('SELECT id, post_id, reactor_id, image_id, reaction_type, created_at, replaced_at, deleted_at FROM realmojis WHERE id=$1', id)
-      row && RealMoji.from_row(row)
-    end
-
     def select_current_realmojis(db, conditions, *args)
       rows = db.select(<<~SQL, *args)
         SELECT r.id, r.post_id, r.reactor_id, r.image_id, r.reaction_type, r.created_at, r.replaced_at, r.deleted_at,

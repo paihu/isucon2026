@@ -105,8 +105,9 @@ module Isureal
         )::text[] AS blocked,
         ARRAY(SELECT id FROM friends)::text[] AS friends,
         ARRAY(
-          SELECT ARRAY[f.user_low_id, f.user_high_id] FROM friendships f
-          WHERE f.user_low_id IN (SELECT id FROM friends) OR f.user_high_id IN (SELECT id FROM friends)
+          SELECT ARRAY[f.user_low_id, f.user_high_id] FROM friends fr JOIN friendships f ON f.user_low_id = fr.id
+          UNION
+          SELECT ARRAY[f.user_low_id, f.user_high_id] FROM friends fr JOIN friendships f ON f.user_high_id = fr.id
         )::text[] AS friend_friendships,
         ARRAY(SELECT followee_id FROM follows WHERE follower_id = $1)::text[] AS following
     SQL
@@ -131,16 +132,6 @@ module Isureal
         end
       end
       viewer
-    end
-
-    def can_view_post?(db, viewer_id, post_id)
-      post = get_post_with_author(db, post_id)
-      return false if post.nil?
-
-      viewer = load_viewer_context(db, viewer_id)
-      return false if viewer.nil?
-
-      viewer.can_view?(post)
     end
 
     def get_friend_ids(db, user_id)

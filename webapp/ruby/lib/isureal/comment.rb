@@ -10,11 +10,6 @@ module Isureal
   end
 
   class App
-    def get_comment(db, id)
-      row = db.get('SELECT id,post_id,author_id,body,created_at,deleted_at FROM comments WHERE id=$1', id)
-      row && Comment.from_row(row)
-    end
-
     def select_comments_with_author(db, conditions, *args)
       rows = db.select(<<~SQL, *args)
         SELECT c.id, c.post_id, c.author_id, c.body, c.created_at, c.deleted_at, #{user_columns_as('u', 'author')}
@@ -24,17 +19,20 @@ module Isureal
       rows.map { |row| Comment.from_row(row).tap { |comment| comment.author = User.from_row(row, 'author').set_image_key } }
     end
 
-    def can_comment?(db, viewer_id, post_id)
-      post = get_post_with_author(db, post_id)
-      return false if post.nil?
+    INTERACTION_ERRORS = {
+      'forbidden' => [403, 'interaction_forbidden'],
+      'not_found' => [404, 'interaction_not_found'],
+      'relationship_not_found' => [404, 'relationship_not_found'],
+    }.freeze
 
-      viewer = load_viewer_context(db, viewer_id)
-      return false if viewer.nil?
-      return false if !viewer.can_view?(post) || !post.window_ended_at.nil?
-      return viewer.has_posted_today if viewer.id == post.author_id
-      return true if post.visibility == 'public'
+    def raise_interaction_error(result)
+      error = INTERACTION_ERRORS[result]
+      raise APIError.new(*error) if error
+    end
 
-      viewer.friends.fetch(post.author_id, false)
+    # mode: 'view'（投稿を閲覧できるか）または 'comment'（コメントできるか）
+    def can_interact?(post_id, mode)
+      db.get_value!('SELECT isureal_can_interact($1, $2, $3)', current_session.user_id, post_id, mode)
     end
   end
 end
