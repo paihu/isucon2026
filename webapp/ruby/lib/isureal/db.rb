@@ -54,7 +54,7 @@ module Isureal
 
     def transaction(&) = with { |conn| conn.transaction(&) }
 
-    def pipeline(queries) = with { |conn| conn.pipeline(queries) }
+    def pipeline(queries, prepare: false) = with { |conn| conn.pipeline(queries, prepare:) }
   end
 
   class Connection
@@ -102,11 +102,32 @@ module Isureal
     end
 
     # 互いに依存しない読み取りを 1 往復で送る（libpq の pipeline mode）。queries は [sql, params] の配列。
-    def pipeline(queries)
+    # prepare: true は、毎回の計画作成の CPU を省くため接続ごとに初回だけ同じ往復の中で prepare する。
+    # 既定で prepare しないのは、汎用計画の見積もりが低く出て実際は遅い SQL があるため（Memories の月指定で 0.7ms → 25ms）。
+    def pipeline(queries, prepare: false)
+      @pipeline_statements ||= {}
+      preparing = {}
+      kinds = []
       results = []
       @raw.enter_pipeline_mode
       begin
-        queries.each { |sql, params| @raw.send_query_params(sql, params.map { |param| encode(param) }) }
+        queries.each do |sql, params|
+          unless prepare
+            @raw.send_query_params(sql, params.map { |param| encode(param) })
+            kinds << :query
+            next
+          end
+
+          name = @pipeline_statements[sql] || preparing[sql]
+          unless name
+            @pipeline_seq = (@pipeline_seq || 0) + 1
+            name = preparing[sql] = "isureal_pipe#{@pipeline_seq}"
+            @raw.send_prepare(name, sql, params.map { |param| param.is_a?(Hash) ? param.fetch(:type, 0) : 0 })
+            kinds << :prepare
+          end
+          @raw.send_query_prepared(name, params.map { |param| encode(param) })
+          kinds << :query
+        end
         @raw.pipeline_sync
         loop do
           result = @raw.get_result
@@ -119,6 +140,8 @@ module Isureal
         @raw.exit_pipeline_mode
       end
       results.each(&:check)
+      @pipeline_statements.merge!(preparing)
+      results.zip(kinds).filter_map { |result, kind| result if kind == :query }
     end
 
     def close

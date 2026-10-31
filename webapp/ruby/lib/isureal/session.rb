@@ -76,7 +76,7 @@ module Isureal
 
     # queries は [sql, *params]。各 SQL の $1 は利用者 ID、params は $2 以降。
     # $1 を使わない SQL でも型が決まるよう、トークンのハッシュは text と明示する。
-    def query_with_session(*queries)
+    def query_with_session(*queries, prepare: false)
       token_hash = token_hash_from_header
       raise APIError.new(401, 'invalid_session') if token_hash.nil?
 
@@ -85,7 +85,7 @@ module Isureal
       session_result, *results = db.pipeline([
         [SESSION_SQL, [token_hash]],
         *queries.map { |sql, *params| [sql.gsub(/\$1(?!\d)/, SESSION_USER_ID_SQL), [token_param, *params]] },
-      ])
+      ], prepare:)
       env['isureal.session'] = session_from_row(session_result.first, token_hash)
       verify_session_region
       results

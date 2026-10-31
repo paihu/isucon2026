@@ -93,7 +93,7 @@ module Isureal
       select_posts_with_author(db, 'AND p.id = $1', post_id).first
     end
 
-    VIEWER_CONTEXT_SQL = <<~SQL
+    VIEWER_CONTEXT_TEMPLATE = <<~SQL
       WITH friends AS (
         SELECT CASE WHEN user_low_id = $1 THEN user_high_id ELSE user_low_id END AS id
         FROM friendships WHERE user_low_id = $1 OR user_high_id = $1
@@ -111,13 +111,18 @@ module Isureal
           FROM block_relations WHERE blocker_id = $1 OR blocked_id = $1
         )::text[] AS blocked,
         ARRAY(SELECT id FROM friends)::text[] AS friends,
-        ARRAY(
+        %s AS friend_friendships,
+        ARRAY(SELECT followee_id FROM follows WHERE follower_id = $1)::text[] AS following
+    SQL
+    VIEWER_CONTEXT_SQL = format(VIEWER_CONTEXT_TEMPLATE, <<~SQL.chomp)
+      ARRAY(
           SELECT ARRAY[f.user_low_id, f.user_high_id] FROM friends fr JOIN friendships f ON f.user_low_id = fr.id
           UNION
           SELECT ARRAY[f.user_low_id, f.user_high_id] FROM friends fr JOIN friendships f ON f.user_high_id = fr.id
-        )::text[] AS friend_friendships,
-        ARRAY(SELECT followee_id FROM follows WHERE follower_id = $1)::text[] AS following
+        )::text[]
     SQL
+    # 友達の友達（友達の交友関係の総当たり）は友達が多いと 10ms 以上かかるので、判定に使わない画面では取らない。
+    VIEWER_CONTEXT_WITHOUT_FOF_SQL = format(VIEWER_CONTEXT_TEMPLATE, 'ARRAY[]::text[]')
 
     def load_viewer_context(db, viewer_id, user = get_user(db, viewer_id))
       return nil if user.nil?

@@ -103,7 +103,7 @@ module Isureal
 
     def get_post_handler
       input = bind(GET_POST_REQUEST)
-      post_rows, viewer_rows = query_with_session([posts_with_author_sql('AND p.id = $2'), input[:post_id]], [VIEWER_CONTEXT_SQL])
+      post_rows, viewer_rows = query_with_session([posts_with_author_sql('AND p.id = $2'), input[:post_id]], [VIEWER_CONTEXT_SQL], prepare: true)
       post = posts_from_rows(post_rows).first
       raise APIError.new(404, 'post_not_found') if post.nil?
 
