@@ -75,6 +75,13 @@ tools/compare-all.sh                  # 旧新の応答を突き合わせ（友�
 - 本文の一時ファイルを `/dev/shm` に、nginx は `proxy_request_buffering off`
 - ログレベル既定 info（`isureal-guard` が info のアクションログで BAN するので error にしない）
 
+## 再起動への耐性（2026-10-31 にローカルで確認）
+
+- アプリが DB より先に起動しても、worker の起動失敗を Puma が繰り返し、DB が上がれば約 5 秒で自動復旧する（失敗中は CPU とログを消費する）。
+- アプリ稼働中に DB だけ再起動すると、直後の数秒は 500 になるが、IP BAN・投稿期間を読み直すバックグラウンドスレッドが切れた接続を捨てるので約 2 秒で回復する。
+- 自動起動: 3 台は isureal-ruby / nginx / isureal-guard が enabled、asia2 は isureal-ruby / isureal-guard / postgresql が enabled（nginx は使わない）。
+- 再起動で消えるもの: /dev/shm の一時ファイル、vmstat/pidstat の記録（`tools/monitor.sh start` で再開）。画像キャッシュ（`~/local/image-cache*`）は残る。
+
 ## ハマりどころ
 
 - **`COLLATE "C"` を比較に使うとインデックスが効かない**（列は C.UTF-8）。順序を決めた値には `COLLATE "default"` を付ける。
