@@ -27,6 +27,16 @@ module Isureal
       nil
     end
 
+    # nginx が X-Accel-Redirect で返すときの内部 URI の接頭辞（etc/nginx/sites-available/isureal.conf の location と対応）。
+    NGINX_PREFIXES = { INITIAL_DIR => '/_image_files/initial/', DIR => '/_image_files/runtime/' }.freeze
+
+    def nginx_uri(id)
+      return nil unless CACHEABLE_ID.match?(id)
+
+      dir = [INITIAL_DIR, DIR].find { |candidate| File.exist?(File.join(candidate, id)) }
+      dir && "#{NGINX_PREFIXES[dir]}#{id}"
+    end
+
     def write(id, data)
       return unless CACHEABLE_ID.match?(id)
 
@@ -38,6 +48,10 @@ module Isureal
   end
 
   FileUtils.mkdir_p(ImageCache::DIR)
+
+  # 画像の本体は nginx がディスクから返す。asia2 は nginx を持たず asia1 の nginx 経由で応答し、
+  # asia1 のディスクに無い画像を指してしまうので、自ホストに nginx の設定があるときだけ使う。
+  NGINX_SENDS_IMAGES = File.exist?('/etc/nginx/conf.d/isureal-upstream.conf')
 
   # 作成した画像の本体は DB に入れず作成したサーバーのディスクに置き、他のサーバーは必要時に取り寄せる。
   module ImageOrigin
@@ -156,7 +170,8 @@ module Isureal
       sig = ImageSignature.decode(input[:sig])
       raise APIError.new(403, 'image_forbidden') if sig.nil? || sig.bytesize != 32
 
-      cached = ImageCache.read(input[:image_id])
+      nginx_uri = NGINX_SENDS_IMAGES && ImageCache.nginx_uri(input[:image_id])
+      cached = nginx_uri || ImageCache.read(input[:image_id])
       state = cached && ImageStateCache.get(input[:image_id])
       row = state || db.get(cached ? IMAGE_STATE_ONLY_SQL : IMAGE_STATE_WITH_DATA_SQL, input[:image_id])
       raise APIError.new(403, 'image_forbidden') if row.nil?
@@ -168,6 +183,12 @@ module Isureal
       end
       raise APIError.new(403, 'image_forbidden') unless row[:valid]
       raise APIError.new(403, 'image_forbidden') if exp <= Time.now.to_i
+
+      if nginx_uri
+        ImageStateCache.put(input[:image_id], row[:secret_key_hash], row[:media_type]) unless state
+        headers['x-accel-redirect'] = nginx_uri
+        return blob(200, row[:media_type], '')
+      end
 
       data = cached || (row[:data].empty? ? row[:origin] && ImageOrigin.fetch(row[:origin], input[:image_id]) : row[:data])
       raise "image #{input[:image_id]} is not available from #{row[:origin].inspect}" if data.nil?
